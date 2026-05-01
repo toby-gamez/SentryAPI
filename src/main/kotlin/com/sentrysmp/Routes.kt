@@ -40,6 +40,13 @@ fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String) {
                 }
             }
 
+            get("/player/{name}") {
+                val playerName = call.parameters["name"]
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing player name"))
+                val res = fetchPlayerStats(plugin, playerName)
+                call.respond(res)
+            }
+
             post("/command") {
                 val req = call.receive<CommandRequest>()
                 val res = dispatchCommand(plugin, req.command)
@@ -99,3 +106,102 @@ private suspend fun fetchBanlist(plugin: JavaPlugin): BanlistResponse = suspendC
 // Note: capturing CommandSender messages was omitted due to API signature differences
 // across Paper versions (Adventure components vs String messages). If you need
 // captured console output, we can implement a version-specific adapter.
+
+/** Captures all log4j2 messages published while the appender is registered. */
+private class Log4jCapture(name: String) : org.apache.logging.log4j.core.appender.AbstractAppender(
+    name, null, null, true, org.apache.logging.log4j.core.config.Property.EMPTY_ARRAY
+) {
+    val messages = mutableListOf<String>()
+    override fun append(event: org.apache.logging.log4j.core.LogEvent) {
+        messages.add(event.message.formattedMessage)
+    }
+}
+
+/**
+ * Delegates everything to the real console sender but intercepts all sendMessage
+ * variants (legacy String API + Adventure Component API) to capture output.
+ */
+private class CapturingCommandSender(
+    private val delegate: org.bukkit.command.ConsoleCommandSender
+) : org.bukkit.command.ConsoleCommandSender by delegate {
+    val captured = mutableListOf<String>()
+    private val plain = net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText()
+
+    // Legacy Bukkit API
+    override fun sendMessage(message: String) { captured.add(message) }
+    override fun sendMessage(vararg messages: String) { captured.addAll(messages) }
+
+    // Adventure API — primary overload used by modern Paper plugins
+    override fun sendMessage(message: net.kyori.adventure.text.Component) {
+        captured.add(plain.serialize(message))
+    }
+
+    // Deprecated Adventure overloads — still emitted by some older plugins
+    @Suppress("DEPRECATION", "UnstableApiUsage")
+    override fun sendMessage(
+        source: net.kyori.adventure.identity.Identified,
+        message: net.kyori.adventure.text.Component,
+        type: net.kyori.adventure.audience.MessageType
+    ) { captured.add(plain.serialize(message)) }
+
+    @Suppress("DEPRECATION", "UnstableApiUsage")
+    override fun sendMessage(
+        source: net.kyori.adventure.identity.Identity,
+        message: net.kyori.adventure.text.Component,
+        type: net.kyori.adventure.audience.MessageType
+    ) { captured.add(plain.serialize(message)) }
+}
+
+private fun runCapturing(
+    plugin: JavaPlugin,
+    command: String,
+    console: org.bukkit.command.ConsoleCommandSender
+): String {
+    val sender = CapturingCommandSender(console)
+    // Paper uses log4j2; plugins (e.g. Essentials, PlayerPoints) log responses there
+    val appenderName = "SentryCapture-${Thread.currentThread().id}"
+    val capture = Log4jCapture(appenderName)
+    capture.start()
+    val ctx = org.apache.logging.log4j.LogManager.getContext(false)
+            as org.apache.logging.log4j.core.LoggerContext
+    ctx.configuration.rootLogger.addAppender(capture, org.apache.logging.log4j.Level.INFO, null)
+    ctx.updateLoggers()
+    try {
+        Bukkit.dispatchCommand(sender, command)
+    } finally {
+        ctx.configuration.rootLogger.removeAppender(appenderName)
+        ctx.updateLoggers()
+        capture.stop()
+    }
+    return (sender.captured + capture.messages).joinToString(" ")
+}
+
+private suspend fun fetchPlayerStats(plugin: JavaPlugin, playerName: String): PlayerStatsResponse =
+    suspendCancellableCoroutine { cont ->
+        Bukkit.getScheduler().runTask(plugin, Runnable {
+            try {
+                val console = plugin.server.consoleSender
+
+                val ansi = Regex("\u001B\\[[\\d;]*m")
+                val coinsText = ansi.replace(runCapturing(plugin, "points look $playerName", console), "")
+                val moneyText = ansi.replace(runCapturing(plugin, "money $playerName", console), "")
+
+                // coins: grab the first comma-formatted integer (e.g. "1,000")
+                val coins = Regex("[\\d,]+").findAll(coinsText)
+                    .map { it.value.replace(",", "") }
+                    .firstOrNull { it.all(Char::isDigit) && it.isNotEmpty() }
+                    ?.toLongOrNull()
+
+                // money: grab number that follows "$" or just the first decimal number
+                val money = (Regex("\\$([\\d,]+(?:\\.\\d+)?)").find(moneyText)?.groupValues?.get(1)
+                    ?: Regex("[\\d,]+(?:\\.\\d+)?").findAll(moneyText)
+                        .map { it.value }
+                        .firstOrNull { it.replace(",", "").toDoubleOrNull() != null })
+                    ?.replace(",", "")?.toDoubleOrNull()
+
+                cont.resume(PlayerStatsResponse(playerName, coins, money))
+            } catch (e: Exception) {
+                cont.resume(PlayerStatsResponse(playerName, error = e.message))
+            }
+        })
+    }

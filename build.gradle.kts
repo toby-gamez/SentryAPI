@@ -24,6 +24,7 @@ dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT")
     compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     compileOnly("net.luckperms:api:5.4")
+    compileOnly("org.apache.logging.log4j:log4j-core:2.24.1")
 
     implementation("io.ktor:ktor-server-core:3.4.0")
     implementation("io.ktor:ktor-server-netty:3.4.0")

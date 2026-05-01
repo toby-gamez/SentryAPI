@@ -57,6 +57,22 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BanEntry'
+    PlayerStatsResponse:
+      type: object
+      properties:
+        player:
+          type: string
+        coins:
+          type: integer
+          format: int64
+          nullable: true
+        money:
+          type: number
+          format: double
+          nullable: true
+        error:
+          type: string
+          nullable: true
 
 paths:
   /command:
@@ -101,3 +117,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PlayersResponse'
+  /player/{name}:
+    get:
+      summary: Get stats for a player (coins and money)
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Minecraft player name
+      responses:
+        '200':
+          description: Player stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerStatsResponse'
+        '400':
+          description: Missing player name
