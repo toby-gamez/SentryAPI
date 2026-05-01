@@ -20,14 +20,18 @@ fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String) {
     }
 
     routing {
+        // simple health/root endpoint (allow unauthenticated access for health checks)
+        get("/") {
+            call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
+        }
         // serve swagger UI from resources
         swaggerUI(path = "swagger", swaggerFile = "openapi/documentation.yaml")
 
         // API routes
         route("") {
             intercept(ApplicationCallPipeline.Plugins) {
-                // allow swagger without API key
-                if (call.request.path().startsWith("/swagger")) return@intercept
+                // allow swagger and root without API key
+                if (call.request.path() == "/" || call.request.path().startsWith("/swagger")) return@intercept
                 val key = call.request.header("X-API-Key")
                 if (key == null || key != apiKey) {
                     call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Unauthorized"))

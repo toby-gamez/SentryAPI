@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.sentrysmp"
-version = "1.0"
+version = "1.1"
 
 kotlin {
     jvmToolchain(21)
@@ -33,6 +33,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.1")
 
     testImplementation(kotlin("test"))
+    testImplementation("io.ktor:ktor-server-test-host:3.4.0")
 }
 
 tasks {

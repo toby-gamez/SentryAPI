@@ -1,2 +1,10 @@
 port: 8080
 api-key: "sentry_51Hk9ZQmX7pL3v9aB8cD2eF0gHiJkLmNoPqRsTuVwXyZ1234567890AbCdEfGhIj"
+# Hologram settings
+hologram-ttl-seconds: 60
+hologram-refresh-seconds: 5
+
+# Scoreboard API settings (override base URL if needed)
+scoreboard-base-url: "https://www.sentrysmp.eu/api"
+# Cache TTL for scoreboard client (seconds)
+scoreboard-cache-ttl: 60

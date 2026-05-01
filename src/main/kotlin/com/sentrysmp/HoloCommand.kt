@@ -1,0 +1,180 @@
+package com.sentrysmp
+
+import org.bukkit.Bukkit
+import org.bukkit.Location
+import org.bukkit.command.Command
+import org.bukkit.command.CommandExecutor
+import org.bukkit.command.CommandSender
+import org.bukkit.entity.ArmorStand
+import org.bukkit.entity.Player
+import org.bukkit.ChatColor
+import org.bukkit.plugin.java.JavaPlugin
+import java.util.concurrent.ConcurrentHashMap
+
+class HoloCommand(
+    private val plugin: JavaPlugin,
+    private val client: ScoreboardClient,
+    private val hologramTtlSeconds: Long = 60L,
+    private val hologramRefreshSeconds: Long = 5L
+) : CommandExecutor {
+    private val renderer = HologramRenderer(plugin)
+
+    private data class HoloInstance(var location: Location, var stands: List<ArmorStand>, var taskId: Int?)
+
+    private val active = ConcurrentHashMap<String, HoloInstance>()
+
+    override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
+        if (args.isEmpty()) {
+            sender.sendMessage("Usage: /sentrysmp holo add <all|today|week|month>")
+            return true
+        }
+
+        if (args[0].lowercase() != "holo") return false
+        if (args.size < 2) {
+            sender.sendMessage("Usage: /sentrysmp holo add <range>")
+            return true
+        }
+
+        val sub = args[1].lowercase()
+        if (sub != "add") {
+            sender.sendMessage("Unknown subcommand: $sub")
+            return true
+        }
+
+        val range = if (args.size >= 3) args[2].lowercase() else "all"
+        val fetcher: () -> ScoreboardResponse? = when (range) {
+            "all" -> { { client.getAll() } }
+            "today" -> { { client.getToday() } }
+            "week" -> { { client.getWeek() } }
+            "month" -> { { client.getMonth() } }
+            else -> {
+                sender.sendMessage("Unknown range: ${'$'}range")
+                return true
+            }
+        }
+
+        // fetch async and spawn on main thread
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
+            val resp = fetcher()
+            if (resp == null) {
+                sender.sendMessage("Failed to fetch scoreboard data for $range")
+                return@Runnable
+            }
+
+            fun formatPaid(d: Double): String {
+                return if (d % 1.0 == 0.0) d.toInt().toString() else String.format("%.2f", d)
+            }
+
+            // Title + subtitle
+            fun toSmallCaps(s: String): String {
+                val map = mapOf(
+                    'A' to 'ᴀ', 'B' to 'ʙ', 'C' to 'ᴄ', 'D' to 'ᴅ', 'E' to 'ᴇ', 'F' to 'ꜰ', 'G' to 'ɢ',
+                    'H' to 'ʜ', 'I' to 'ɪ', 'J' to 'ᴊ', 'K' to 'ᴋ', 'L' to 'ʟ', 'M' to 'ᴍ', 'N' to 'ɴ',
+                    'O' to 'ᴏ', 'P' to 'ᴘ', 'Q' to 'ǫ', 'R' to 'ʀ', 'S' to 'ꜱ', 'T' to 'ᴛ', 'U' to 'ᴜ',
+                    'V' to 'ᴠ', 'W' to 'ᴡ', 'X' to 'x', 'Y' to 'ʏ', 'Z' to 'ᴢ'
+                )
+                return s.uppercase().map { ch -> map[ch] ?: ch }.joinToString("")
+            }
+
+            val title = "${ChatColor.RED}${ChatColor.BOLD}€ STORE €${ChatColor.RESET}"
+            val subtitle = "${ChatColor.GRAY}${toSmallCaps("LEADERBOARD")}${ChatColor.RESET}"
+
+            // Build simple rows with single spaces between columns: rank, name, score
+            val rawRows = resp.entries.map { e ->
+                val rankText = "${ChatColor.RED}${e.rank}.${ChatColor.RESET}"
+                val nameText = "${ChatColor.WHITE}${e.minecraftUsername}${ChatColor.RESET}"
+                val scoreText = "${ChatColor.RED}${formatPaid(e.totalPaid)}€${ChatColor.RESET}"
+                "$rankText $nameText $scoreText"
+            }
+
+            val withHeader = listOf(title, subtitle) + rawRows
+
+            val lines = if (sender is Player) {
+                val player = sender as Player
+                val replaced = rawRows.map { line ->
+                    try {
+                        val pclazz = Class.forName("me.clip.placeholderapi.PlaceholderAPI")
+                        val method = pclazz.getMethod("setPlaceholders", org.bukkit.entity.Player::class.java, String::class.java)
+                        val replaced = method.invoke(null, player, line) as? String
+                        replaced ?: line
+                    } catch (t: Throwable) {
+                        line
+                    }
+                }
+                listOf(title, subtitle) + replaced
+            } else withHeader
+
+            val loc: Location = if (sender is Player) {
+                sender.location.add(0.0, 1.0, 0.0)
+            } else {
+                // console: use world spawn
+                Bukkit.getWorlds().firstOrNull()?.spawnLocation ?: Location(Bukkit.getWorlds().first(), 0.0, 64.0, 0.0)
+            }
+
+            Bukkit.getScheduler().runTask(plugin, Runnable {
+                val key = if (sender is Player) sender.name else "console"
+                // remove previous hologram for this sender if present (cancel its updater)
+                active.remove(key)?.let { prev ->
+                    prev.taskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
+                    renderer.removeHologram(prev.stands)
+                }
+
+                val stands = renderer.spawnHologram(loc, lines)
+                if (stands.isNotEmpty()) {
+                    val instance = HoloInstance(loc, stands, null)
+                    active[key] = instance
+
+                    // schedule removal after TTL (convert seconds to ticks)
+                    val ticks = Math.max(1L, hologramTtlSeconds) * 20L
+                    Bukkit.getScheduler().runTaskLater(plugin, Runnable {
+                        // cancel updater and remove hologram
+                        active.remove(key)?.let { inst ->
+                            inst.taskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
+                            renderer.removeHologram(inst.stands)
+                        }
+                    }, ticks)
+
+                    // schedule periodic refresh: fetch async and update on main thread
+                    val refreshTicks = Math.max(1L, hologramRefreshSeconds) * 20L
+                    val task = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, Runnable {
+                        val updated = fetcher()
+                        if (updated == null) return@Runnable
+                        // build new lines similar to above
+                        val rawRows2 = updated.entries.map { e ->
+                            val rankText = "${ChatColor.RED}${e.rank}.${ChatColor.RESET}"
+                            val nameText = "${ChatColor.WHITE}${e.minecraftUsername}${ChatColor.RESET}"
+                            val scoreText = "${ChatColor.RED}${if (e.totalPaid % 1.0 == 0.0) e.totalPaid.toInt().toString() else String.format("%.2f", e.totalPaid)}€${ChatColor.RESET}"
+                            "$rankText $nameText $scoreText"
+                        }
+                        val lines2 = if (sender is Player) {
+                            val player = sender as Player
+                            val replaced = rawRows2.map { line ->
+                                try {
+                                    val pclazz = Class.forName("me.clip.placeholderapi.PlaceholderAPI")
+                                    val method = pclazz.getMethod("setPlaceholders", org.bukkit.entity.Player::class.java, String::class.java)
+                                    val replaced = method.invoke(null, player, line) as? String
+                                    replaced ?: line
+                                } catch (t: Throwable) {
+                                    line
+                                }
+                            }
+                            listOf(title, subtitle) + replaced
+                        } else listOf(title, subtitle) + rawRows2
+
+                        Bukkit.getScheduler().runTask(plugin, Runnable {
+                            active[key]?.let { inst ->
+                                val newStands = renderer.updateHologram(inst.stands, inst.location, lines2)
+                                inst.stands = newStands
+                            }
+                        })
+                    }, refreshTicks, refreshTicks)
+
+                    try { instance.taskId = task.taskId } catch (_: NoSuchMethodError) { /* best-effort */ }
+                }
+                sender.sendMessage("Spawned hologram with ${stands.size} lines for range $range")
+            })
+        })
+
+        return true
+    }
+}
