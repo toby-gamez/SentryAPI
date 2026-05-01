@@ -3,6 +3,7 @@ package com.sentrysmp
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.ktor.server.netty.NettyApplicationEngine
+import org.bukkit.Bukkit
 import java.util.concurrent.TimeUnit
 import org.bukkit.plugin.java.JavaPlugin
 
@@ -40,6 +41,9 @@ class CommandApiPlugin : JavaPlugin() {
         server.start(false)
         httpServer = server
         logger.info("SentryAPI HTTP server started on 127.0.0.1:$port")
+
+        // Restore persisted holograms on the next tick (worlds are guaranteed loaded)
+        Bukkit.getScheduler().runTask(this, Runnable { holo.restoreHolograms() })
     }
 
     override fun onDisable() {

@@ -21,6 +21,7 @@ class HoloCommand(
 ) : CommandExecutor {
     private val renderer = HologramRenderer(plugin)
     private val holosFile = File(plugin.dataFolder, "holos.txt")
+    private val holoConfigFile = File(plugin.dataFolder, "holo-sessions.yml")
 
     private data class HoloInstance(var location: Location, var stands: List<ArmorStand>, var refreshTaskId: Int?, var ttlTaskId: Int?)
 
@@ -41,6 +42,31 @@ class HoloCommand(
             val remaining = holosFile.readLines().filter { it.isNotBlank() && it !in removing }
             if (remaining.isEmpty()) holosFile.delete()
             else holosFile.writeText(remaining.joinToString("\n") + "\n")
+        } catch (_: Exception) {}
+    }
+
+    private fun saveHoloConfig(key: String, loc: Location, range: String) {
+        try {
+            plugin.dataFolder.mkdirs()
+            val cfg = org.bukkit.configuration.file.YamlConfiguration()
+            if (holoConfigFile.exists()) cfg.load(holoConfigFile)
+            cfg.set("$key.world", loc.world?.name ?: return)
+            cfg.set("$key.x", loc.x)
+            cfg.set("$key.y", loc.y)
+            cfg.set("$key.z", loc.z)
+            cfg.set("$key.range", range)
+            cfg.save(holoConfigFile)
+        } catch (_: Exception) {}
+    }
+
+    private fun removeHoloConfig(key: String) {
+        try {
+            if (!holoConfigFile.exists()) return
+            val cfg = org.bukkit.configuration.file.YamlConfiguration()
+            cfg.load(holoConfigFile)
+            cfg.set(key, null)
+            if (cfg.getKeys(false).isEmpty()) holoConfigFile.delete()
+            else cfg.save(holoConfigFile)
         } catch (_: Exception) {}
     }
 
@@ -118,6 +144,7 @@ class HoloCommand(
                 Bukkit.getScheduler().runTask(plugin, Runnable {
                     renderer.removeHologram(removed.stands)
                     unpersistStands(removed.stands)
+                    removeHoloConfig(key)
                 })
                 sender.sendMessage("Hologram removed.")
             }
@@ -129,80 +156,82 @@ class HoloCommand(
         }
 
         val range = if (args.size >= 3) args[2].lowercase() else "all"
+        val key = if (sender is Player) sender.name else "console"
+        val player = sender as? Player
+        val loc: Location = if (sender is Player) {
+            sender.location.add(0.0, 1.0, 0.0)
+        } else {
+            Bukkit.getWorlds().firstOrNull()?.spawnLocation ?: Location(Bukkit.getWorlds().first(), 0.0, 64.0, 0.0)
+        }
+
+        if (range !in setOf("all", "today", "week", "month")) {
+            sender.sendMessage("Unknown range: $range")
+            return true
+        }
+
+        saveHoloConfig(key, loc, range)
+        spawnHologramForKey(key, loc, range, player) { count ->
+            sender.sendMessage("Spawned hologram with $count lines for range $range")
+        }
+        return true
+    }
+
+    private fun toSmallCaps(s: String): String {
+        val map = mapOf(
+            'A' to 'ᴀ', 'B' to 'ʙ', 'C' to 'ᴄ', 'D' to 'ᴅ', 'E' to 'ᴇ', 'F' to 'ꜰ', 'G' to 'ɢ',
+            'H' to 'ʜ', 'I' to 'ɪ', 'J' to 'ᴊ', 'K' to 'ᴋ', 'L' to 'ʟ', 'M' to 'ᴍ', 'N' to 'ɴ',
+            'O' to 'ᴏ', 'P' to 'ᴘ', 'Q' to 'ǫ', 'R' to 'ʀ', 'S' to 'ꜱ', 'T' to 'ᴛ', 'U' to 'ᴜ',
+            'V' to 'ᴠ', 'W' to 'ᴡ', 'X' to 'x', 'Y' to 'ʏ', 'Z' to 'ᴢ'
+        )
+        return s.uppercase().map { ch -> map[ch] ?: ch }.joinToString("")
+    }
+
+    private fun formatPaid(d: Double): String =
+        if (d % 1.0 == 0.0) d.toInt().toString() else String.format("%.2f", d)
+
+    private fun buildLines(entries: List<ScoreEntry>, player: Player?): List<String> {
+        val title = "${ChatColor.RED}${ChatColor.BOLD}€ STORE €${ChatColor.RESET}"
+        val subtitle = "${ChatColor.GRAY}${toSmallCaps("LEADERBOARD")}${ChatColor.RESET}"
+        val rawRows = entries.take(10).map { e ->
+            val rankText = "${ChatColor.RED}${e.rank}.${ChatColor.RESET}"
+            val prefix = getLuckPermsPrefix(e.minecraftUsername)
+            val prefixText = if (prefix.isNotEmpty()) "$prefix " else ""
+            val nameText = "${ChatColor.WHITE}${e.minecraftUsername}${ChatColor.RESET}"
+            val scoreText = "${ChatColor.RED}${formatPaid(e.totalPaid)}€${ChatColor.RESET}"
+            "$rankText $prefixText$nameText $scoreText"
+        }
+        val rows = if (player != null) {
+            rawRows.map { line ->
+                try {
+                    val pclazz = Class.forName("me.clip.placeholderapi.PlaceholderAPI")
+                    val method = pclazz.getMethod("setPlaceholders", org.bukkit.entity.Player::class.java, String::class.java)
+                    (method.invoke(null, player, line) as? String) ?: line
+                } catch (t: Throwable) { line }
+            }
+        } else rawRows
+        return listOf(title, subtitle) + rows
+    }
+
+    private fun spawnHologramForKey(
+        key: String,
+        loc: Location,
+        range: String,
+        player: Player? = null,
+        onComplete: ((Int) -> Unit)? = null
+    ) {
         val fetcher: () -> ScoreboardResponse? = when (range) {
             "all" -> { { client.getAll() } }
             "today" -> { { client.getToday() } }
             "week" -> { { client.getWeek() } }
             "month" -> { { client.getMonth() } }
-            else -> {
-                sender.sendMessage("Unknown range: ${'$'}range")
-                return true
-            }
+            else -> return
         }
 
-        // fetch async and spawn on main thread
         Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
-            val resp = fetcher()
-            if (resp == null) {
-                sender.sendMessage("Failed to fetch scoreboard data for $range")
-                return@Runnable
-            }
-
-            fun formatPaid(d: Double): String {
-                return if (d % 1.0 == 0.0) d.toInt().toString() else String.format("%.2f", d)
-            }
-
-            // Title + subtitle
-            fun toSmallCaps(s: String): String {
-                val map = mapOf(
-                    'A' to 'ᴀ', 'B' to 'ʙ', 'C' to 'ᴄ', 'D' to 'ᴅ', 'E' to 'ᴇ', 'F' to 'ꜰ', 'G' to 'ɢ',
-                    'H' to 'ʜ', 'I' to 'ɪ', 'J' to 'ᴊ', 'K' to 'ᴋ', 'L' to 'ʟ', 'M' to 'ᴍ', 'N' to 'ɴ',
-                    'O' to 'ᴏ', 'P' to 'ᴘ', 'Q' to 'ǫ', 'R' to 'ʀ', 'S' to 'ꜱ', 'T' to 'ᴛ', 'U' to 'ᴜ',
-                    'V' to 'ᴠ', 'W' to 'ᴡ', 'X' to 'x', 'Y' to 'ʏ', 'Z' to 'ᴢ'
-                )
-                return s.uppercase().map { ch -> map[ch] ?: ch }.joinToString("")
-            }
-
-            val title = "${ChatColor.RED}${ChatColor.BOLD}€ STORE €${ChatColor.RESET}"
-            val subtitle = "${ChatColor.GRAY}${toSmallCaps("LEADERBOARD")}${ChatColor.RESET}"
-
-            // Build simple rows with single spaces between columns: rank, prefix, name, score
-            val rawRows = resp.entries.take(10).map { e ->
-                val rankText = "${ChatColor.RED}${e.rank}.${ChatColor.RESET}"
-                val prefix = getLuckPermsPrefix(e.minecraftUsername)
-                val prefixText = if (prefix.isNotEmpty()) "$prefix " else ""
-                val nameText = "${ChatColor.WHITE}${e.minecraftUsername}${ChatColor.RESET}"
-                val scoreText = "${ChatColor.RED}${formatPaid(e.totalPaid)}€${ChatColor.RESET}"
-                "$rankText $prefixText$nameText $scoreText"
-            }
-
-            val withHeader = listOf(title, subtitle) + rawRows
-
-            val lines = if (sender is Player) {
-                val player = sender as Player
-                val replaced = rawRows.map { line ->
-                    try {
-                        val pclazz = Class.forName("me.clip.placeholderapi.PlaceholderAPI")
-                        val method = pclazz.getMethod("setPlaceholders", org.bukkit.entity.Player::class.java, String::class.java)
-                        val replaced = method.invoke(null, player, line) as? String
-                        replaced ?: line
-                    } catch (t: Throwable) {
-                        line
-                    }
-                }
-                listOf(title, subtitle) + replaced
-            } else withHeader
-
-            val loc: Location = if (sender is Player) {
-                sender.location.add(0.0, 1.0, 0.0)
-            } else {
-                // console: use world spawn
-                Bukkit.getWorlds().firstOrNull()?.spawnLocation ?: Location(Bukkit.getWorlds().first(), 0.0, 64.0, 0.0)
-            }
+            val resp = fetcher() ?: return@Runnable
+            val lines = buildLines(resp.entries, player)
 
             Bukkit.getScheduler().runTask(plugin, Runnable {
-                val key = if (sender is Player) sender.name else "console"
-                // remove previous hologram for this sender if present (cancel its updater)
                 active.remove(key)?.let { prev ->
                     prev.refreshTaskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
                     prev.ttlTaskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
@@ -216,54 +245,27 @@ class HoloCommand(
                     active[key] = instance
                     persistStands(stands)
 
-                    // schedule removal after TTL (convert seconds to ticks); 0 means no TTL
                     if (hologramTtlSeconds > 0L) {
                         val ticks = hologramTtlSeconds * 20L
                         val ttlTask = Bukkit.getScheduler().runTaskLater(plugin, Runnable {
-                            // cancel updater and remove hologram
                             active.remove(key)?.let { inst ->
                                 inst.refreshTaskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
                                 renderer.removeHologram(inst.stands)
                                 unpersistStands(inst.stands)
                             }
+                            removeHoloConfig(key)
                         }, ticks)
-                        try { instance.ttlTaskId = ttlTask.taskId } catch (_: NoSuchMethodError) { /* best-effort */ }
+                        try { instance.ttlTaskId = ttlTask.taskId } catch (_: NoSuchMethodError) {}
                     }
 
-                    // schedule periodic refresh: fetch async and update on main thread
                     val refreshTicks = Math.max(1L, hologramRefreshSeconds) * 20L
                     val task = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, Runnable {
-                        val updated = fetcher()
-                        if (updated == null) return@Runnable
-                        // build new lines similar to above
-                        val rawRows2 = updated.entries.take(10).map { e ->
-                            val rankText = "${ChatColor.RED}${e.rank}.${ChatColor.RESET}"
-                            val prefix = getLuckPermsPrefix(e.minecraftUsername)
-                            val prefixText = if (prefix.isNotEmpty()) "$prefix " else ""
-                            val nameText = "${ChatColor.WHITE}${e.minecraftUsername}${ChatColor.RESET}"
-                            val scoreText = "${ChatColor.RED}${if (e.totalPaid % 1.0 == 0.0) e.totalPaid.toInt().toString() else String.format("%.2f", e.totalPaid)}€${ChatColor.RESET}"
-                            "$rankText $prefixText$nameText $scoreText"
-                        }
-                        val lines2 = if (sender is Player) {
-                            val player = sender as Player
-                            val replaced = rawRows2.map { line ->
-                                try {
-                                    val pclazz = Class.forName("me.clip.placeholderapi.PlaceholderAPI")
-                                    val method = pclazz.getMethod("setPlaceholders", org.bukkit.entity.Player::class.java, String::class.java)
-                                    val replaced = method.invoke(null, player, line) as? String
-                                    replaced ?: line
-                                } catch (t: Throwable) {
-                                    line
-                                }
-                            }
-                            listOf(title, subtitle) + replaced
-                        } else listOf(title, subtitle) + rawRows2
-
+                        val updated = fetcher() ?: return@Runnable
+                        val lines2 = buildLines(updated.entries, player)
                         Bukkit.getScheduler().runTask(plugin, Runnable {
                             active[key]?.let { inst ->
                                 val oldStands = inst.stands
                                 val newStands = renderer.updateHologram(oldStands, inst.location, lines2)
-                                // sync persistence: unpersist removed stands, persist added stands
                                 val oldUuids = oldStands.map { it.uniqueId }.toSet()
                                 val newUuids = newStands.map { it.uniqueId }.toSet()
                                 val removed = oldStands.filter { it.uniqueId !in newUuids }
@@ -275,12 +277,28 @@ class HoloCommand(
                         })
                     }, refreshTicks, refreshTicks)
 
-                    try { instance.refreshTaskId = task.taskId } catch (_: NoSuchMethodError) { /* best-effort */ }
+                    try { instance.refreshTaskId = task.taskId } catch (_: NoSuchMethodError) {}
                 }
-                sender.sendMessage("Spawned hologram with ${stands.size} lines for range $range")
+                onComplete?.invoke(stands.size)
             })
         })
+    }
 
-        return true
+    fun restoreHolograms() {
+        if (!holoConfigFile.exists()) return
+        try {
+            val cfg = org.bukkit.configuration.file.YamlConfiguration()
+            cfg.load(holoConfigFile)
+            for (key in cfg.getKeys(false)) {
+                val worldName = cfg.getString("$key.world") ?: continue
+                val world = Bukkit.getWorld(worldName) ?: continue
+                val x = cfg.getDouble("$key.x")
+                val y = cfg.getDouble("$key.y")
+                val z = cfg.getDouble("$key.z")
+                val range = cfg.getString("$key.range") ?: "all"
+                val loc = Location(world, x, y, z)
+                spawnHologramForKey(key, loc, range)
+            }
+        } catch (_: Exception) {}
     }
 }
