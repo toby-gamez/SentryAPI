@@ -9,6 +9,8 @@ import org.bukkit.entity.ArmorStand
 import org.bukkit.entity.Player
 import org.bukkit.ChatColor
 import org.bukkit.plugin.java.JavaPlugin
+import java.io.File
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 class HoloCommand(
@@ -18,10 +20,60 @@ class HoloCommand(
     private val hologramRefreshSeconds: Long = 5L
 ) : CommandExecutor {
     private val renderer = HologramRenderer(plugin)
+    private val holosFile = File(plugin.dataFolder, "holos.txt")
 
-    private data class HoloInstance(var location: Location, var stands: List<ArmorStand>, var taskId: Int?)
+    private data class HoloInstance(var location: Location, var stands: List<ArmorStand>, var refreshTaskId: Int?, var ttlTaskId: Int?)
 
     private val active = ConcurrentHashMap<String, HoloInstance>()
+
+    private fun persistStands(stands: List<ArmorStand>) {
+        try {
+            plugin.dataFolder.mkdirs()
+            val uuids = stands.joinToString("\n") { it.uniqueId.toString() } + "\n"
+            holosFile.appendText(uuids)
+        } catch (_: Exception) {}
+    }
+
+    private fun unpersistStands(stands: List<ArmorStand>) {
+        try {
+            if (!holosFile.exists()) return
+            val removing = stands.map { it.uniqueId.toString() }.toSet()
+            val remaining = holosFile.readLines().filter { it.isNotBlank() && it !in removing }
+            if (remaining.isEmpty()) holosFile.delete()
+            else holosFile.writeText(remaining.joinToString("\n") + "\n")
+        } catch (_: Exception) {}
+    }
+
+    fun removeAll() {
+        for ((_, inst) in active) {
+            inst.refreshTaskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
+            inst.ttlTaskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
+            renderer.removeHologram(inst.stands)
+        }
+        active.clear()
+        try { holosFile.delete() } catch (_: Exception) {}
+    }
+
+    companion object {
+        fun cleanupOrphanedStands(plugin: JavaPlugin) {
+            val holosFile = File(plugin.dataFolder, "holos.txt")
+            if (!holosFile.exists()) return
+            try {
+                val uuids = holosFile.readLines()
+                    .filter { it.isNotBlank() }
+                    .mapNotNull { try { UUID.fromString(it) } catch (_: Exception) { null } }
+                    .toSet()
+                for (world in Bukkit.getWorlds()) {
+                    for (entity in world.entities) {
+                        if (entity.uniqueId in uuids) {
+                            try { entity.remove() } catch (_: Exception) {}
+                        }
+                    }
+                }
+                holosFile.delete()
+            } catch (_: Exception) {}
+        }
+    }
 
     private fun getLuckPermsPrefix(username: String): String {
         return try {
@@ -61,8 +113,12 @@ class HoloCommand(
             if (removed == null) {
                 sender.sendMessage("No active hologram to remove.")
             } else {
-                removed.taskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
-                Bukkit.getScheduler().runTask(plugin, Runnable { renderer.removeHologram(removed.stands) })
+                removed.refreshTaskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
+                removed.ttlTaskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
+                Bukkit.getScheduler().runTask(plugin, Runnable {
+                    renderer.removeHologram(removed.stands)
+                    unpersistStands(removed.stands)
+                })
                 sender.sendMessage("Hologram removed.")
             }
             return true
@@ -148,24 +204,31 @@ class HoloCommand(
                 val key = if (sender is Player) sender.name else "console"
                 // remove previous hologram for this sender if present (cancel its updater)
                 active.remove(key)?.let { prev ->
-                    prev.taskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
+                    prev.refreshTaskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
+                    prev.ttlTaskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
                     renderer.removeHologram(prev.stands)
+                    unpersistStands(prev.stands)
                 }
 
                 val stands = renderer.spawnHologram(loc, lines)
                 if (stands.isNotEmpty()) {
-                    val instance = HoloInstance(loc, stands, null)
+                    val instance = HoloInstance(loc, stands, null, null)
                     active[key] = instance
+                    persistStands(stands)
 
-                    // schedule removal after TTL (convert seconds to ticks)
-                    val ticks = Math.max(1L, hologramTtlSeconds) * 20L
-                    Bukkit.getScheduler().runTaskLater(plugin, Runnable {
-                        // cancel updater and remove hologram
-                        active.remove(key)?.let { inst ->
-                            inst.taskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
-                            renderer.removeHologram(inst.stands)
-                        }
-                    }, ticks)
+                    // schedule removal after TTL (convert seconds to ticks); 0 means no TTL
+                    if (hologramTtlSeconds > 0L) {
+                        val ticks = hologramTtlSeconds * 20L
+                        val ttlTask = Bukkit.getScheduler().runTaskLater(plugin, Runnable {
+                            // cancel updater and remove hologram
+                            active.remove(key)?.let { inst ->
+                                inst.refreshTaskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
+                                renderer.removeHologram(inst.stands)
+                                unpersistStands(inst.stands)
+                            }
+                        }, ticks)
+                        try { instance.ttlTaskId = ttlTask.taskId } catch (_: NoSuchMethodError) { /* best-effort */ }
+                    }
 
                     // schedule periodic refresh: fetch async and update on main thread
                     val refreshTicks = Math.max(1L, hologramRefreshSeconds) * 20L
@@ -198,13 +261,21 @@ class HoloCommand(
 
                         Bukkit.getScheduler().runTask(plugin, Runnable {
                             active[key]?.let { inst ->
-                                val newStands = renderer.updateHologram(inst.stands, inst.location, lines2)
+                                val oldStands = inst.stands
+                                val newStands = renderer.updateHologram(oldStands, inst.location, lines2)
+                                // sync persistence: unpersist removed stands, persist added stands
+                                val oldUuids = oldStands.map { it.uniqueId }.toSet()
+                                val newUuids = newStands.map { it.uniqueId }.toSet()
+                                val removed = oldStands.filter { it.uniqueId !in newUuids }
+                                val added = newStands.filter { it.uniqueId !in oldUuids }
+                                if (removed.isNotEmpty()) unpersistStands(removed)
+                                if (added.isNotEmpty()) persistStands(added)
                                 inst.stands = newStands
                             }
                         })
                     }, refreshTicks, refreshTicks)
 
-                    try { instance.taskId = task.taskId } catch (_: NoSuchMethodError) { /* best-effort */ }
+                    try { instance.refreshTaskId = task.taskId } catch (_: NoSuchMethodError) { /* best-effort */ }
                 }
                 sender.sendMessage("Spawned hologram with ${stands.size} lines for range $range")
             })

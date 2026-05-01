@@ -8,6 +8,7 @@ import org.bukkit.plugin.java.JavaPlugin
 
 class CommandApiPlugin : JavaPlugin() {
     private var httpServer: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
+    private var holoCommand: HoloCommand? = null
 
     override fun onEnable() {
         saveDefaultConfig()
@@ -21,12 +22,17 @@ class CommandApiPlugin : JavaPlugin() {
         val client = ScoreboardClient(scoreboardBase, cacheTtl)
 
         val holoTtl = config.getLong("hologram-ttl-seconds")
-        val hologramTtl = if (holoTtl <= 0L) 60L else holoTtl
+        val hologramTtl = if (holoTtl < 0L) 0L else holoTtl
         val holoRefresh = config.getLong("hologram-refresh-seconds")
         val hologramRefresh = if (holoRefresh <= 0L) 5L else holoRefresh
 
+        // clean up any stands left over from a previous (crashed) session
+        HoloCommand.cleanupOrphanedStands(this)
+
         // register command executor
-        this.getCommand("sentrysmp")?.setExecutor(HoloCommand(this, client, hologramTtl, hologramRefresh))
+        val holo = HoloCommand(this, client, hologramTtl, hologramRefresh)
+        holoCommand = holo
+        this.getCommand("sentrysmp")?.setExecutor(holo)
 
         val server = embeddedServer(Netty, host = "127.0.0.1", port = port) {
             configureRoutes(this@CommandApiPlugin, apiKey)
@@ -37,6 +43,7 @@ class CommandApiPlugin : JavaPlugin() {
     }
 
     override fun onDisable() {
+        holoCommand?.removeAll()
         try {
                 httpServer?.stop(1000, 5000, TimeUnit.MILLISECONDS)
         } catch (e: Exception) {
