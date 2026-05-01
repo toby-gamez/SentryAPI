@@ -1,6 +1,6 @@
 name: SentryAPI
 main: com.sentrysmp.CommandApiPlugin
-version: 1.0.0
+version: 1.0
 api-version: "1.21"
-description: HTTP API plugin for dispatching server commands (binds to 127.0.0.1)
-author: Generated
+description: A tool plugin for SentrySMP
+author: Taneq
