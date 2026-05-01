@@ -40,6 +40,23 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PlayerInfo'
+    BanEntry:
+      type: object
+      properties:
+        name:
+          type: string
+        uuid:
+          type: string
+        reason:
+          type: string
+          nullable: true
+    BanlistResponse:
+      type: object
+      properties:
+        banned:
+          type: array
+          items:
+            $ref: '#/components/schemas/BanEntry'
 
 paths:
   /command:
@@ -60,6 +77,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CommandResponse'
+  /banlist:
+    get:
+      summary: List banned players
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Banlist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BanlistResponse'
   /players:
     get:
       summary: List online players

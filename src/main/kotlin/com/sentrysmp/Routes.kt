@@ -8,6 +8,7 @@ import io.ktor.server.response.*
 import io.ktor.server.request.*
 import io.ktor.http.*
 import io.ktor.server.plugins.swagger.*
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.bukkit.Bukkit
 import org.bukkit.command.CommandSender
 import org.bukkit.plugin.java.JavaPlugin
@@ -49,28 +50,49 @@ fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String) {
                 val res = fetchPlayers(plugin)
                 call.respond(res)
             }
+
+            get("/banlist") {
+                val res = fetchBanlist(plugin)
+                call.respond(res)
+            }
         }
     }
 }
 
-private suspend fun dispatchCommand(plugin: JavaPlugin, command: String): CommandResponse = suspendCoroutine { cont ->
-    // Dispatch command on the main server thread. Capturing CommandSender output is
-    // brittle across Paper API versions (message method signatures changed), so
-    // return success flag without captured messages.
-    Bukkit.getScheduler().runTask(plugin, Runnable {
-        try {
-            val success = Bukkit.dispatchCommand(plugin.server.consoleSender, command)
-            cont.resume(CommandResponse(listOf(), success))
-        } catch (e: Exception) {
-            cont.resume(CommandResponse(listOf(e.message ?: "error"), false))
-        }
-    })
-}
+private suspend fun dispatchCommand(plugin: JavaPlugin, command: String): CommandResponse =
+    suspendCancellableCoroutine { cont ->
+        // Dispatch command on the main server thread. Capturing CommandSender output is
+        // brittle across Paper API versions (message method signatures changed), so
+        // return success flag without captured messages.
+        Bukkit.getScheduler().runTask(plugin, Runnable {
+            try {
+                val success = Bukkit.dispatchCommand(plugin.server.consoleSender, command)
+                cont.resume(CommandResponse(listOf(), success))
+            } catch (e: Exception) {
+                cont.resume(CommandResponse(listOf(e.message ?: "error"), false))
+            }
+        })
+    }
 
-private suspend fun fetchPlayers(plugin: JavaPlugin): PlayersResponse = suspendCoroutine { cont ->
+private suspend fun fetchPlayers(plugin: JavaPlugin): PlayersResponse = suspendCancellableCoroutine { cont ->
     Bukkit.getScheduler().runTask(plugin, Runnable {
         val players = Bukkit.getOnlinePlayers().map { p -> PlayerInfo(p.name, p.uniqueId.toString()) }
         cont.resume(PlayersResponse(players))
+    })
+}
+
+private suspend fun fetchBanlist(plugin: JavaPlugin): BanlistResponse = suspendCancellableCoroutine { cont ->
+    Bukkit.getScheduler().runTask(plugin, Runnable {
+        val banList = Bukkit.getBanList(io.papermc.paper.ban.BanListType.PROFILE)
+        val reasonByUuid = HashMap<java.util.UUID, String?>()
+        for (entry in banList.getEntries<org.bukkit.BanEntry<com.destroystokyo.paper.profile.PlayerProfile>>()) {
+            val uuid = entry.banTarget.id
+            if (uuid != null) reasonByUuid[uuid] = entry.reason
+        }
+        val banned = Bukkit.getBannedPlayers().map { p ->
+            BanEntry(p.name ?: "", p.uniqueId.toString(), reasonByUuid[p.uniqueId])
+        }
+        cont.resume(BanlistResponse(banned))
     })
 }
 

@@ -16,6 +16,12 @@ data class PlayerInfo(val name: String, val uuid: String)
 data class PlayersResponse(val players: List<PlayerInfo>)
 
 @Serializable
+data class BanEntry(val name: String, val uuid: String, val reason: String?)
+
+@Serializable
+data class BanlistResponse(val banned: List<BanEntry>)
+
+@Serializable
 data class ScoreEntry(
 	val rank: Int,
 	@SerialName("minecraftUsername") val minecraftUsername: String,
