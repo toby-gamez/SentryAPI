@@ -50,11 +50,23 @@ class HoloCommand(
 
         if (args[0].lowercase() != "holo") return false
         if (args.size < 2) {
-            sender.sendMessage("Usage: /sentrysmp holo add <range>")
+            sender.sendMessage("Usage: /sentrysmp holo <add <range>|remove>")
             return true
         }
 
         val sub = args[1].lowercase()
+        if (sub == "remove") {
+            val key = if (sender is Player) sender.name else "console"
+            val removed = active.remove(key)
+            if (removed == null) {
+                sender.sendMessage("No active hologram to remove.")
+            } else {
+                removed.taskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
+                Bukkit.getScheduler().runTask(plugin, Runnable { renderer.removeHologram(removed.stands) })
+                sender.sendMessage("Hologram removed.")
+            }
+            return true
+        }
         if (sub != "add") {
             sender.sendMessage("Unknown subcommand: $sub")
             return true
@@ -99,7 +111,7 @@ class HoloCommand(
             val subtitle = "${ChatColor.GRAY}${toSmallCaps("LEADERBOARD")}${ChatColor.RESET}"
 
             // Build simple rows with single spaces between columns: rank, prefix, name, score
-            val rawRows = resp.entries.map { e ->
+            val rawRows = resp.entries.take(10).map { e ->
                 val rankText = "${ChatColor.RED}${e.rank}.${ChatColor.RESET}"
                 val prefix = getLuckPermsPrefix(e.minecraftUsername)
                 val prefixText = if (prefix.isNotEmpty()) "$prefix " else ""
@@ -161,7 +173,7 @@ class HoloCommand(
                         val updated = fetcher()
                         if (updated == null) return@Runnable
                         // build new lines similar to above
-                        val rawRows2 = updated.entries.map { e ->
+                        val rawRows2 = updated.entries.take(10).map { e ->
                             val rankText = "${ChatColor.RED}${e.rank}.${ChatColor.RESET}"
                             val prefix = getLuckPermsPrefix(e.minecraftUsername)
                             val prefixText = if (prefix.isNotEmpty()) "$prefix " else ""
