@@ -23,6 +23,25 @@ class HoloCommand(
 
     private val active = ConcurrentHashMap<String, HoloInstance>()
 
+    private fun getLuckPermsPrefix(username: String): String {
+        return try {
+            if (!Bukkit.getPluginManager().isPluginEnabled("LuckPerms")) return ""
+            val lp = net.luckperms.api.LuckPermsProvider.get()
+            val online = Bukkit.getPlayerExact(username)
+            val user = if (online != null) {
+                lp.userManager.getUser(online.uniqueId)
+            } else {
+                val uuid = lp.userManager.lookupUniqueId(username).join() ?: return ""
+                lp.userManager.loadUser(uuid).join()
+            } ?: return ""
+            val meta = user.cachedData.getMetaData(net.luckperms.api.query.QueryOptions.nonContextual())
+            val raw = meta.prefix ?: return ""
+            ChatColor.translateAlternateColorCodes('&', raw)
+        } catch (t: Throwable) {
+            ""
+        }
+    }
+
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
         if (args.isEmpty()) {
             sender.sendMessage("Usage: /sentrysmp holo add <all|today|week|month>")
@@ -79,12 +98,14 @@ class HoloCommand(
             val title = "${ChatColor.RED}${ChatColor.BOLD}€ STORE €${ChatColor.RESET}"
             val subtitle = "${ChatColor.GRAY}${toSmallCaps("LEADERBOARD")}${ChatColor.RESET}"
 
-            // Build simple rows with single spaces between columns: rank, name, score
+            // Build simple rows with single spaces between columns: rank, prefix, name, score
             val rawRows = resp.entries.map { e ->
                 val rankText = "${ChatColor.RED}${e.rank}.${ChatColor.RESET}"
+                val prefix = getLuckPermsPrefix(e.minecraftUsername)
+                val prefixText = if (prefix.isNotEmpty()) "$prefix " else ""
                 val nameText = "${ChatColor.WHITE}${e.minecraftUsername}${ChatColor.RESET}"
                 val scoreText = "${ChatColor.RED}${formatPaid(e.totalPaid)}€${ChatColor.RESET}"
-                "$rankText $nameText $scoreText"
+                "$rankText $prefixText$nameText $scoreText"
             }
 
             val withHeader = listOf(title, subtitle) + rawRows
@@ -142,9 +163,11 @@ class HoloCommand(
                         // build new lines similar to above
                         val rawRows2 = updated.entries.map { e ->
                             val rankText = "${ChatColor.RED}${e.rank}.${ChatColor.RESET}"
+                            val prefix = getLuckPermsPrefix(e.minecraftUsername)
+                            val prefixText = if (prefix.isNotEmpty()) "$prefix " else ""
                             val nameText = "${ChatColor.WHITE}${e.minecraftUsername}${ChatColor.RESET}"
                             val scoreText = "${ChatColor.RED}${if (e.totalPaid % 1.0 == 0.0) e.totalPaid.toInt().toString() else String.format("%.2f", e.totalPaid)}€${ChatColor.RESET}"
-                            "$rankText $nameText $scoreText"
+                            "$rankText $prefixText$nameText $scoreText"
                         }
                         val lines2 = if (sender is Player) {
                             val player = sender as Player
