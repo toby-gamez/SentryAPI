@@ -1,4 +1,8 @@
 port: 8080
+# Host to bind the HTTP server to.
+# Use "0.0.0.0" to listen on all interfaces (required for dedicated servers / VPS).
+# Use "127.0.0.1" to restrict access to localhost only.
+host: "0.0.0.0"
 api-key: "sentry_51Hk9ZQmX7pL3v9aB8cD2eF0gHiJkLmNoPqRsTuVwXyZ1234567890AbCdEfGhIj"
 # Hologram settings
 hologram-ttl-seconds: 0
