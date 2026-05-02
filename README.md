@@ -1,78 +1,109 @@
 # SentryAPI
 
-This project was created using the [Ktor Project Generator](https://start.ktor.io).
+**SentryAPI** je Minecraft Paper plugin pro server SentrySMP. Uvnitř pluginu běží vestavěný HTTP server (Ktor + Netty), který vystavuje REST API pro správu serveru a zobrazuje scoreboard jako hologramy ve světě.
 
-Here are some useful links to get you started:
+> Podrobná dokumentace je v souboru [DOCS.md](DOCS.md).
 
-* [Ktor Documentation](https://ktor.io/docs/home.html)
-* [Ktor GitHub page](https://github.com/ktorio/ktor)
-* [Ktor Slack chat](https://app.slack.com/client/T09229ZC6/C0A974TJ9). [Request an invite](https://surveys.jetbrains.com/s3/kotlin-slack-sign-up).
+---
 
-## Features
+## Funkce
 
-Here's a list of features included in this project:
+| Funkce | Popis |
+|--------|-------|
+| Embedded HTTP server (Ktor / Netty) | REST API dostupné lokálně na `127.0.0.1:<port>` |
+| API klíč (`X-API-Key`) | Jednoduchá autentizace hlavičkou; Swagger UI je veřejné |
+| `POST /command` | Vykoná příkaz jako konzole, vrátí výsledek |
+| `GET /players` | Vrátí seznam online hráčů (jméno + UUID) |
+| `GET /banlist` | Vrátí seznam zabanovaných hráčů s důvodem |
+| `GET /player/{name}` | Vrátí coins a money hráče (přes PlayerPoints + Essentials) |
+| `GET /` | Health-check endpoint (bez autentizace) |
+| Swagger UI | Interaktivní dokumentace API na `/swagger` |
+| Hologramový scoreboard (`/sentrysmp holo`) | Zobrazí store leaderboard jako hologram ve světě; automatické obnovování |
+| ScoreboardClient | HTTP klient s cache pro načítání dat z `sentrysmp.eu/api` |
+| Soft-depend: LuckPerms, PlaceholderAPI | Prefix hráčů v hologramu (volitelné) |
 
-| Name                                                                      | Description                                                         |
-|---------------------------------------------------------------------------|---------------------------------------------------------------------|
-| [AsyncAPI](https://start.ktor.io/p/com.asyncapi/server-asyncapi)          | Generates and serves AsyncAPI documentation                         |
-| [CORS](https://start.ktor.io/p/io.ktor/server-cors)                       | Enables Cross-Origin Resource Sharing (CORS)                        |
-| [Caching Headers](https://start.ktor.io/p/io.ktor/server-caching-headers) | Provides options for responding with standard cache-control headers |
-| [Swagger](https://start.ktor.io/p/io.ktor/server-swagger)                 | Serves Swagger UI for your project                                  |
-| [Authentication](https://start.ktor.io/p/io.ktor/server-auth)             | Provides extension point for handling the Authorization header      |
-| [Authentication Basic](https://start.ktor.io/p/io.ktor/server-auth-basic) | Handles 'Basic' username / password authentication scheme           |
-| [Koin](https://start.ktor.io/p/io.insert-koin/server-koin)                | Provides dependency injection                                       |
+---
 
-## Building & Running
+## Sestavení & Spuštění
 
-To build or run the project, use one of the following tasks:
+### Předpoklady
 
-| Task | Description |
-|------|-------------|
+- **Java 21** (JDK)
+- Gradle Wrapper (`./gradlew`) — není třeba mít Gradle nainstalovaný globálně
 
-If the server starts successfully, you'll see the following output:
+### Gradle úlohy
 
-```
-2024-12-04 14:32:45.584 [main] INFO  Application - Application started in 0.303 seconds.
-2024-12-04 14:32:45.682 [main] INFO  Application - Responding at http://0.0.0.0:8080
-```
+| Úloha | Popis |
+|-------|-------|
+| `./gradlew build` | Sestaví projekt a spustí testy |
+| `./gradlew test` | Spustí pouze unit testy |
+| `./gradlew fatJar` | Vytvoří spustitelný fat JAR se všemi závislostmi |
+| `./gradlew classes` | Zkompiluje zdrojové soubory (bez testů) |
 
-## Vytvoření JAR (fat JAR)
-
-Pro vytvoření spustitelného "fat" JAR (obsahuje závislosti) použijte Gradle wrapper a úlohu `fatJar` definovanou v `build.gradle.kts`:
+### Vytvoření fat JAR (nasazení jako plugin)
 
 ```bash
 ./gradlew fatJar
 ```
 
-Po dokončení najdete JAR v adresáři `build/libs/`. Název souboru bude vypadat přibližně takto:
+Výsledný JAR se nachází v `build/libs/`:
 
 ```
-SentryAPI-1.0.0-SNAPSHOT-all.jar
+SentryAPI-1.2-all.jar
 ```
 
-Spuštění JAR:
+Zkopírujte soubor do složky `plugins/` svého Paper serveru a restartujte server.
+
+### Konfigurace po prvním spuštění
+
+Po prvním načtení pluginu se vytvoří `plugins/SentryAPI/config.yml`. Upravte alespoň:
+
+```yaml
+port: 8080
+api-key: "vaše-tajné-heslo"
+```
+
+Podrobný popis všech konfiguračních položek naleznete v [DOCS.md](DOCS.md).
+
+---
+
+## Použití API
+
+API naslouchá na `http://127.0.0.1:<port>`. Všechny endpointy (kromě `/` a `/swagger`) vyžadují hlavičku:
+
+```
+X-API-Key: <váš klíč z config.yml>
+```
+
+Příklad — seznam hráčů online:
 
 ```bash
-java -jar build/libs/SentryAPI-1.0.0-SNAPSHOT-all.jar
+curl -H "X-API-Key: vaše-heslo" http://127.0.0.1:8080/players
 ```
 
-Poznámky:
-- Pokud nepoužíváte wrapper, lze spustit `gradle fatJar` pokud máte gradle nainstalovaný.
-- Pokud by úloha `fatJar` selhala kvůli duplicitám v `META-INF`, podívejte se do `build.gradle.kts` pro `duplicatesStrategy` nebo používejte `shadowJar` (pokud je dostupný).
+Swagger UI s interaktivní dokumentací je dostupné na:
+
+```
+http://127.0.0.1:8080/swagger
+```
+
+---
+
+## In-game příkazy
+
+| Příkaz | Popis |
+|--------|-------|
+| `/sentrysmp holo add <all\|today\|week\|month>` | Zobrazí hologramový store leaderboard na vaší pozici |
+| `/sentrysmp holo remove` | Odstraní váš hologram |
+
+Oprávnění: `sentrysmp.use`
+
+---
 
 ## Jak to funguje
 
-Krátké shrnutí architektury a chování projektu:
-
-- **Typ projektu:** Minecraft Paper/PaperMC plugin, který zároveň spouští vestavěný HTTP server (Ktor).
-- **Hlavní třída:** `com.sentrysmp.CommandApiPlugin` (definováno v `plugin.yml`). Při zapnutí pluginu se zavolá `onEnable()` a spustí se embedded Ktor server.
-- **Síťové nastavení:** Server naslouchá na `127.0.0.1` a portu definovaném v `src/main/resources/config.yml` (výchozí `8080`). To zajišťuje, že API je dostupné pouze lokálně ze serveru.
-- **Autentizace:** API používá hlavičku `X-API-Key`. Klíč nastavíte v `config.yml` (`api-key`). Požadavky bez správného klíče dostanou `401 Unauthorized`. Výjimka: Swagger UI (`/swagger`) je přístupné bez klíče.
-- **Endpointy:**
-	- `POST /command` — přijme JSON `{ "command": "..." }`, vykoná příkaz na serveru jako konzole a vrátí `CommandResponse` s `success` (boolean) a `output` (seznam stringů). Ve stávající implementaci může být `output` prázdný kvůli rozdílům v Paper API.
-	- `GET /players` — vrací seznam online hráčů jako `PlayersResponse` s objekty `PlayerInfo { name, uuid }`.
-- **Swagger / OpenAPI:** UI je dostupné na `http://127.0.0.1:<port>/swagger` a používá soubor `openapi/documentation.yaml` ze zdrojů.
-- **Běh v rámci Bukkit/Paper:** Volání příkazů a získávání hráčů probíhá přes Bukkit API spuštěné v hlavním vlákně serveru pomocí `Bukkit.getScheduler().runTask(...)`, aby byla zaručena bezpečnost API.
-- **Životní cyklus:** Při vypnutí pluginu (`onDisable()`) se HTTP server správně zastaví (`httpServer?.stop(...)`).
-
-Pokud budete potřebovat rozšíření (např. vracet konzolový výstup, změnit bind adresu nebo přidat další endpointy), můžu to implementovat nebo navrhnout konkrétní změny.
+- **Typ projektu:** Paper plugin, který při spuštění (`onEnable`) nastartuje embedded Ktor/Netty HTTP server.
+- **Bezpečnost:** Server naslouchá výhradně na `127.0.0.1` — API není dostupné z internetu přímo.
+- **Thread safety:** Všechna volání Bukkit API (dispatch příkaz, seznam hráčů, spawn entit) probíhají v hlavním vlákně serveru pomocí `Bukkit.getScheduler().runTask(...)`.
+- **Hologramy:** Jsou realizovány neviditelnými `ArmorStand` entitami s vlastním jménem. Při pádu serveru jsou UUIDs persistovány do `holos.txt` a při dalším startu jsou osiřelé entity automaticky odstraněny.
+- **Životní cyklus:** Při `onDisable()` jsou odstraněny všechny hologramy a HTTP server je korektně zastaven.
