@@ -34,6 +34,7 @@ class CommandApiPlugin : JavaPlugin() {
         val holo = HoloCommand(this, client, hologramTtl, hologramRefresh)
         holoCommand = holo
         this.getCommand("sentrysmp")?.setExecutor(holo)
+        this.getCommand("sentrysmp")?.tabCompleter = holo
 
         val server = embeddedServer(Netty, host = "127.0.0.1", port = port) {
             configureRoutes(this@CommandApiPlugin, apiKey)

@@ -5,6 +5,7 @@ import org.bukkit.Location
 import org.bukkit.command.Command
 import org.bukkit.command.CommandExecutor
 import org.bukkit.command.CommandSender
+import org.bukkit.command.TabCompleter
 import org.bukkit.entity.ArmorStand
 import org.bukkit.entity.Player
 import org.bukkit.ChatColor
@@ -18,7 +19,7 @@ class HoloCommand(
     private val client: ScoreboardClient,
     private val hologramTtlSeconds: Long = 60L,
     private val hologramRefreshSeconds: Long = 5L
-) : CommandExecutor {
+) : CommandExecutor, TabCompleter {
     private val renderer = HologramRenderer(plugin)
     private val holosFile = File(plugin.dataFolder, "holos.txt")
     private val holoConfigFile = File(plugin.dataFolder, "holo-sessions.yml")
@@ -193,6 +194,30 @@ class HoloCommand(
                 sender.sendMessage("Unknown subcommand: $sub. Use add, remove, or list.")
                 return true
             }
+        }
+    }
+
+    override fun onTabComplete(
+        sender: CommandSender,
+        command: Command,
+        alias: String,
+        args: Array<out String>
+    ): List<String> {
+        val prefix = args.lastOrNull()?.lowercase() ?: ""
+        return when (args.size) {
+            1 -> listOf("holo").filter { it.startsWith(prefix) }
+            2 -> if (args[0].lowercase() == "holo") {
+                listOf("add", "remove", "list").filter { it.startsWith(prefix) }
+            } else emptyList()
+            3 -> when (args[1].lowercase()) {
+                "remove" -> active.keys.filter { it.lowercase().startsWith(prefix) }
+                "add" -> emptyList() // free-form hologram name
+                else -> emptyList()
+            }
+            4 -> if (args[1].lowercase() == "add") {
+                listOf("all", "today", "week", "month").filter { it.startsWith(prefix) }
+            } else emptyList()
+            else -> emptyList()
         }
     }
 
