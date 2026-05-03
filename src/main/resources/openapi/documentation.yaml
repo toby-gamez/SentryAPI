@@ -70,6 +70,9 @@ components:
           type: number
           format: double
           nullable: true
+        rank:
+          type: string
+          nullable: true
         error:
           type: string
           nullable: true

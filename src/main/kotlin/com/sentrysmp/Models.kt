@@ -26,6 +26,7 @@ data class PlayerStatsResponse(
 	val player: String,
 	val coins: Long? = null,
 	val money: Double? = null,
+	val rank: String? = null,
 	val error: String? = null
 )
 

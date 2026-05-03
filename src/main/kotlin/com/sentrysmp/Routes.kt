@@ -8,6 +8,7 @@ import io.ktor.server.response.*
 import io.ktor.server.request.*
 import io.ktor.http.*
 import io.ktor.server.plugins.swagger.*
+import io.ktor.server.plugins.cors.routing.*
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.bukkit.Bukkit
 import org.bukkit.command.CommandSender
@@ -18,6 +19,15 @@ import kotlin.coroutines.suspendCoroutine
 fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String) {
     install(ContentNegotiation) {
         json()
+    }
+
+    install(CORS) {
+        anyHost()
+        allowHeader(HttpHeaders.ContentType)
+        allowHeader("X-API-Key")
+        allowMethod(HttpMethod.Get)
+        allowMethod(HttpMethod.Post)
+        allowMethod(HttpMethod.Options)
     }
 
     routing {
@@ -176,8 +186,10 @@ private fun runCapturing(
     return (sender.captured + capture.messages).joinToString(" ")
 }
 
-private suspend fun fetchPlayerStats(plugin: JavaPlugin, playerName: String): PlayerStatsResponse =
-    suspendCancellableCoroutine { cont ->
+private suspend fun fetchPlayerStats(plugin: JavaPlugin, playerName: String): PlayerStatsResponse {
+    // Fetch coins and money on the main thread (Bukkit API requirement)
+    data class StatsPartial(val coins: Long?, val money: Double?, val error: String?)
+    val partial = suspendCancellableCoroutine<StatsPartial> { cont ->
         Bukkit.getScheduler().runTask(plugin, Runnable {
             try {
                 val console = plugin.server.consoleSender
@@ -199,9 +211,47 @@ private suspend fun fetchPlayerStats(plugin: JavaPlugin, playerName: String): Pl
                         .firstOrNull { it.replace(",", "").toDoubleOrNull() != null })
                     ?.replace(",", "")?.toDoubleOrNull()
 
-                cont.resume(PlayerStatsResponse(playerName, coins, money))
+                cont.resume(StatsPartial(coins, money, null))
             } catch (e: Exception) {
-                cont.resume(PlayerStatsResponse(playerName, error = e.message))
+                cont.resume(StatsPartial(null, null, e.message))
             }
         })
     }
+
+    if (partial.error != null) return PlayerStatsResponse(playerName, error = partial.error)
+
+    // Fetch rank via LuckPerms API (handles async user loading properly)
+    val rank: String? = try {
+        val lp = net.luckperms.api.LuckPermsProvider.get()
+
+        // Resolve UUID: instant for online players, async LP lookup for offline
+        val uuid: java.util.UUID? = suspendCancellableCoroutine { cont ->
+            val onlinePlayer = Bukkit.getPlayer(playerName)
+            if (onlinePlayer != null) {
+                cont.resume(onlinePlayer.uniqueId)
+            } else {
+                lp.userManager.lookupUniqueId(playerName).whenComplete { id, _ -> cont.resume(id) }
+            }
+        }
+
+        if (uuid != null) {
+            // Load user: instant if cached (online player), async otherwise
+            val user: net.luckperms.api.model.user.User? = suspendCancellableCoroutine { cont ->
+                val cached = lp.userManager.getUser(uuid)
+                if (cached != null) {
+                    cont.resume(cached)
+                } else {
+                    lp.userManager.loadUser(uuid).whenComplete { u, _ -> cont.resume(u) }
+                }
+            }
+            user?.cachedData
+                ?.getMetaData(net.luckperms.api.query.QueryOptions.nonContextual())
+                ?.prefix
+                ?.takeIf { it.isNotEmpty() }
+        } else null
+    } catch (e: Exception) {
+        null
+    }
+
+    return PlayerStatsResponse(playerName, partial.coins, partial.money, rank)
+}
