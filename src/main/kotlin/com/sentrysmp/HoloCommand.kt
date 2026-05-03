@@ -23,7 +23,7 @@ class HoloCommand(
     private val holosFile = File(plugin.dataFolder, "holos.txt")
     private val holoConfigFile = File(plugin.dataFolder, "holo-sessions.yml")
 
-    private data class HoloInstance(var location: Location, var stands: List<ArmorStand>, var refreshTaskId: Int?, var ttlTaskId: Int?)
+    private data class HoloInstance(var location: Location, var stands: List<ArmorStand>, var refreshTaskId: Int?, var ttlTaskId: Int?, val range: String)
 
     private val active = ConcurrentHashMap<String, HoloInstance>()
 
@@ -121,59 +121,79 @@ class HoloCommand(
     }
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
-        if (args.isEmpty()) {
-            sender.sendMessage("Usage: /sentrysmp holo add <all|today|week|month>")
+        if (args.isEmpty() || args[0].lowercase() != "holo") {
+            sender.sendMessage("Usage: /sentrysmp holo <add <name> [range]|remove <name>|list>")
             return true
         }
-
-        if (args[0].lowercase() != "holo") return false
         if (args.size < 2) {
-            sender.sendMessage("Usage: /sentrysmp holo <add <range>|remove>")
+            sender.sendMessage("Usage: /sentrysmp holo <add <name> [range]|remove <name>|list>")
             return true
         }
 
         val sub = args[1].lowercase()
-        if (sub == "remove") {
-            val key = if (sender is Player) sender.name else "console"
-            val removed = active.remove(key)
-            if (removed == null) {
-                sender.sendMessage("No active hologram to remove.")
-            } else {
-                removed.refreshTaskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
-                removed.ttlTaskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
-                Bukkit.getScheduler().runTask(plugin, Runnable {
-                    renderer.removeHologram(removed.stands)
-                    unpersistStands(removed.stands)
-                    removeHoloConfig(key)
-                })
-                sender.sendMessage("Hologram removed.")
+        when (sub) {
+            "list" -> {
+                if (active.isEmpty()) {
+                    sender.sendMessage("No active holograms.")
+                } else {
+                    sender.sendMessage("Active holograms (${active.size}):")
+                    for ((name, inst) in active) {
+                        val loc = inst.location
+                        val world = loc.world?.name ?: "?"
+                        sender.sendMessage("  - $name [${inst.range}] @ $world ${loc.blockX},${loc.blockY},${loc.blockZ}")
+                    }
+                }
+                return true
             }
-            return true
+            "remove" -> {
+                if (args.size < 3) {
+                    sender.sendMessage("Usage: /sentrysmp holo remove <name>")
+                    return true
+                }
+                val name = args[2]
+                val removed = active.remove(name)
+                if (removed == null) {
+                    sender.sendMessage("No hologram named '$name'.")
+                } else {
+                    removed.refreshTaskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
+                    removed.ttlTaskId?.let { try { Bukkit.getScheduler().cancelTask(it) } catch (_: Exception) {} }
+                    Bukkit.getScheduler().runTask(plugin, Runnable {
+                        renderer.removeHologram(removed.stands)
+                        unpersistStands(removed.stands)
+                        removeHoloConfig(name)
+                    })
+                    sender.sendMessage("Hologram '$name' removed.")
+                }
+                return true
+            }
+            "add" -> {
+                if (args.size < 3) {
+                    sender.sendMessage("Usage: /sentrysmp holo add <name> [range]")
+                    return true
+                }
+                val name = args[2]
+                val range = if (args.size >= 4) args[3].lowercase() else "all"
+                if (range !in setOf("all", "today", "week", "month")) {
+                    sender.sendMessage("Unknown range: $range. Use all, today, week, or month.")
+                    return true
+                }
+                val player = sender as? Player
+                val loc: Location = if (sender is Player) {
+                    sender.location.add(0.0, 1.0, 0.0)
+                } else {
+                    Bukkit.getWorlds().firstOrNull()?.spawnLocation ?: Location(Bukkit.getWorlds().first(), 0.0, 64.0, 0.0)
+                }
+                saveHoloConfig(name, loc, range)
+                spawnHologramForKey(name, loc, range, player) { count ->
+                    sender.sendMessage("Hologram '$name' spawned with $count lines for range $range.")
+                }
+                return true
+            }
+            else -> {
+                sender.sendMessage("Unknown subcommand: $sub. Use add, remove, or list.")
+                return true
+            }
         }
-        if (sub != "add") {
-            sender.sendMessage("Unknown subcommand: $sub")
-            return true
-        }
-
-        val range = if (args.size >= 3) args[2].lowercase() else "all"
-        val key = if (sender is Player) sender.name else "console"
-        val player = sender as? Player
-        val loc: Location = if (sender is Player) {
-            sender.location.add(0.0, 1.0, 0.0)
-        } else {
-            Bukkit.getWorlds().firstOrNull()?.spawnLocation ?: Location(Bukkit.getWorlds().first(), 0.0, 64.0, 0.0)
-        }
-
-        if (range !in setOf("all", "today", "week", "month")) {
-            sender.sendMessage("Unknown range: $range")
-            return true
-        }
-
-        saveHoloConfig(key, loc, range)
-        spawnHologramForKey(key, loc, range, player) { count ->
-            sender.sendMessage("Spawned hologram with $count lines for range $range")
-        }
-        return true
     }
 
     private fun toSmallCaps(s: String): String {
@@ -241,7 +261,7 @@ class HoloCommand(
 
                 val stands = renderer.spawnHologram(loc, lines)
                 if (stands.isNotEmpty()) {
-                    val instance = HoloInstance(loc, stands, null, null)
+                    val instance = HoloInstance(loc, stands, null, null, range)
                     active[key] = instance
                     persistStands(stands)
 
