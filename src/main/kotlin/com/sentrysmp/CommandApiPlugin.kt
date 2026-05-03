@@ -37,7 +37,7 @@ class CommandApiPlugin : JavaPlugin() {
         this.getCommand("sentrysmp")?.tabCompleter = holo
 
         val server = embeddedServer(Netty, host = "127.0.0.1", port = port) {
-            configureRoutes(this@CommandApiPlugin, apiKey)
+            configureRoutes(this@CommandApiPlugin, apiKey, scoreboardBase)
         }
         server.start(false)
         httpServer = server

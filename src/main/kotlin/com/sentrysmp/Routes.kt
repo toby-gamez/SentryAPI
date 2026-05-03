@@ -9,6 +9,13 @@ import io.ktor.server.request.*
 import io.ktor.http.*
 import io.ktor.server.plugins.swagger.*
 import io.ktor.server.plugins.cors.routing.*
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.time.Duration
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.bukkit.Bukkit
 import org.bukkit.command.CommandSender
@@ -16,7 +23,7 @@ import org.bukkit.plugin.java.JavaPlugin
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
-fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String) {
+fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String, apiBaseUrl: String) {
     install(ContentNegotiation) {
         json()
     }
@@ -59,6 +66,37 @@ fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String) {
 
             post("/command") {
                 val req = call.receive<CommandRequest>()
+
+                // price must be positive
+                if (req.price <= 0.0) return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Price must be > 0"))
+
+                // parse cart JSON (client sends cart JSON as string)
+                val json = Json { ignoreUnknownKeys = true }
+                val cartItems = try {
+                    json.decodeFromString(ListSerializer(CartItem.serializer()), req.cart)
+                } catch (e: Exception) {
+                    return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Malformed cart JSON: ${e.message}"))
+                }
+
+                // compute cart total
+                val cartTotal = cartItems.map { it.key.price * it.quantity }.sum()
+
+                // determine discountPercent (0 if no voucher provided)
+                var discountPercent = 0.0
+                if (!req.voucher.isNullOrBlank()) {
+                    val voucher = fetchVoucher(apiBaseUrl, req.voucher)
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Voucher not found"))
+                    if (!voucher.isActive) return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Voucher is not active"))
+                    discountPercent = voucher.discountPercent
+                }
+
+                // minimum allowed price: voucher discount + 5% extra tolerance
+                val minAllowedPrice = cartTotal * (1.0 - (discountPercent + 5.0) / 100.0)
+                if (req.price < minAllowedPrice) {
+                    return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Price validation failed", "minAllowedPrice" to minAllowedPrice, "cartTotal" to cartTotal, "discountPercent" to discountPercent))
+                }
+
+                // all checks passed — dispatch command
                 val res = dispatchCommand(plugin, req.command)
                 call.respond(res)
             }
@@ -184,6 +222,27 @@ private fun runCapturing(
         capture.stop()
     }
     return (sender.captured + capture.messages).joinToString(" ")
+}
+
+private fun fetchVoucher(baseUrl: String, code: String): VoucherResponse? {
+    val client = HttpClient.newBuilder()
+        .version(HttpClient.Version.HTTP_2)
+        .connectTimeout(Duration.ofSeconds(10))
+        .build()
+    val url = if (baseUrl.endsWith("/")) "${baseUrl}Vouchers/$code" else "$baseUrl/Vouchers/$code"
+    return try {
+        val req = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .timeout(Duration.ofSeconds(10))
+            .GET()
+            .build()
+        val resp = client.send(req, HttpResponse.BodyHandlers.ofString())
+        if (resp.statusCode() != 200) return null
+        val json = Json { ignoreUnknownKeys = true }
+        json.decodeFromString(VoucherResponse.serializer(), resp.body())
+    } catch (e: Exception) {
+        null
+    }
 }
 
 private suspend fun fetchPlayerStats(plugin: JavaPlugin, playerName: String): PlayerStatsResponse {

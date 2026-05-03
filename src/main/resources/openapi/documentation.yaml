@@ -16,7 +16,18 @@ components:
       properties:
         command:
           type: string
-      required: [command]
+        price:
+          type: number
+          format: double
+          description: Price submitted by client in EUR
+        cart:
+          type: string
+          description: JSON-encoded cart payload (array of items as string)
+        voucher:
+          type: string
+          nullable: true
+          description: Optional voucher code
+      required: [command, price, cart]
     CommandResponse:
       type: object
       properties:
