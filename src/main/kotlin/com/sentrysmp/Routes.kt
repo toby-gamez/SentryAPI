@@ -161,6 +161,21 @@ fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String, apiBaseUrl: 
                         for (p in Bukkit.getOnlinePlayers()) {
                             try { p.sendMessage(msg) } catch (_: Exception) { }
                         }
+                        // launch a red firework at the purchasing player
+                        try {
+                            val buyer = Bukkit.getPlayerExact(playerName)
+                            if (buyer != null) {
+                                val firework = buyer.world.spawn(buyer.location, org.bukkit.entity.Firework::class.java)
+                                val meta = firework.fireworkMeta
+                                val effect = org.bukkit.FireworkEffect.builder()
+                                    .with(org.bukkit.FireworkEffect.Type.BALL_LARGE)
+                                    .withColor(org.bukkit.Color.RED)
+                                    .build()
+                                meta.addEffect(effect)
+                                meta.power = 1
+                                firework.fireworkMeta = meta
+                            }
+                        } catch (_: Exception) { }
                     })
                 } catch (_: Exception) {
                     // don't fail the request if broadcasting fails
