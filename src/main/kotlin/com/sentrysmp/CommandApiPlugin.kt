@@ -15,6 +15,7 @@ class CommandApiPlugin : JavaPlugin() {
         saveDefaultConfig()
         val port = config.getInt("port", 8080)
         val apiKey = config.getString("api-key") ?: "change-me"
+        val host = config.getString("host") ?: "127.0.0.1"
 
         // build scoreboard client from config
         val scoreboardBase = config.getString("scoreboard-base-url") ?: "https://www.sentrysmp.eu/api"
@@ -36,12 +37,12 @@ class CommandApiPlugin : JavaPlugin() {
         this.getCommand("sentrysmp")?.setExecutor(holo)
         this.getCommand("sentrysmp")?.tabCompleter = holo
 
-        val server = embeddedServer(Netty, host = "127.0.0.1", port = port) {
+        val server = embeddedServer(Netty, host = host, port = port) {
             configureRoutes(this@CommandApiPlugin, apiKey, scoreboardBase)
         }
         server.start(false)
         httpServer = server
-        logger.info("SentryAPI HTTP server started on 127.0.0.1:$port")
+        logger.info("SentryAPI HTTP server started on $host:$port")
 
         // Restore persisted holograms on the next tick (worlds are guaranteed loaded)
         Bukkit.getScheduler().runTask(this, Runnable { holo.restoreHolograms() })

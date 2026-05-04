@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.sentrysmp"
-version = "1.3"
+version = "1.4"
 
 kotlin {
     jvmToolchain(21)

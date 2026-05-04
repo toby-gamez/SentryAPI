@@ -1,6 +1,6 @@
 name: SentryAPI
 main: com.sentrysmp.CommandApiPlugin
-version: 1.3
+version: 1.4
 api-version: "1.21"
 description: A tool plugin for SentrySMP
 author: Taneq

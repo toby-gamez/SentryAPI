@@ -1,5 +1,8 @@
 port: 8080
-api-key: "sentry_51Hk9ZQmX7pL3v9aB8cD2eF0gHiJkLmNoPqRsTuVwXyZ1234567890AbCdEfGhIj"
+api-key: "change-me"
+# Bind address for embedded HTTP server. Use 127.0.0.1 for local debugging.
+# For production, set to 0.0.0.0 or your public hostname.
+host: 127.0.0.1
 # Hologram settings
 hologram-ttl-seconds: 0
 hologram-refresh-seconds: 5
