@@ -2,6 +2,13 @@
 koin = "4.2.0"
 kotlin = "2.3.20"
 logback = "1.5.21"
+ktor = "3.4.0"
+coroutines = "1.9.0"
+serialization = "1.5.1"
+log4j = "2.24.1"
+paper = "1.21.1-R0.1-SNAPSHOT"
+luckperms = "5.4"
+shadow = "8.1.1"
 
 [libraries]
 koin-ktor = { module = "io.insert-koin:koin-ktor", version.ref = "koin" }

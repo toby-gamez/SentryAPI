@@ -1,10 +1,10 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    kotlin("jvm") version "2.3.20"
-    kotlin("plugin.serialization") version "2.3.20"
+    kotlin("jvm") version libs.versions.kotlin.get()
+    kotlin("plugin.serialization") version libs.versions.kotlin.get()
     // Shadow plugin disabled in this environment due to ZIP/META-INF write issues
-    // id("com.github.johnrengelman.shadow") version "8.1.1"
+    // id("com.github.johnrengelman.shadow") version libs.versions.shadow.get()
 }
 
 group = "com.sentrysmp"
@@ -21,23 +21,30 @@ repositories {
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT")
-    compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
-    compileOnly("net.luckperms:api:5.4")
-    compileOnly("org.apache.logging.log4j:log4j-core:2.24.1")
+    val ktorVersion = libs.versions.ktor.get()
+    val coroutinesVersion = libs.versions.coroutines.get()
+    val serializationVersion = libs.versions.serialization.get()
+    val log4jVersion = libs.versions.log4j.get()
+    val paperVersion = libs.versions.paper.get()
+    val luckpermsVersion = libs.versions.luckperms.get()
 
-    implementation("io.ktor:ktor-server-core:3.4.0")
-    implementation("io.ktor:ktor-server-netty:3.4.0")
-    implementation("io.ktor:ktor-server-content-negotiation:3.4.0")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:3.4.0")
-    implementation("io.ktor:ktor-server-swagger:3.4.0")
-    implementation("io.ktor:ktor-server-routing-openapi:3.4.0")
-    implementation("io.ktor:ktor-server-cors:3.4.0")
+    compileOnly("io.papermc.paper:paper-api:$paperVersion")
+    compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
+    compileOnly("net.luckperms:api:$luckpermsVersion")
+    compileOnly("org.apache.logging.log4j:log4j-core:$log4jVersion")
 
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.1")
+    implementation("io.ktor:ktor-server-core:$ktorVersion")
+    implementation("io.ktor:ktor-server-netty:$ktorVersion")
+    implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
+    implementation("io.ktor:ktor-server-swagger:$ktorVersion")
+    implementation("io.ktor:ktor-server-routing-openapi:$ktorVersion")
+    implementation("io.ktor:ktor-server-cors:$ktorVersion")
+
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:$serializationVersion")
 
     testImplementation(kotlin("test"))
-    testImplementation("io.ktor:ktor-server-test-host:3.4.0")
+    testImplementation("io.ktor:ktor-server-test-host:$ktorVersion")
 }
 
 tasks {
