@@ -14,8 +14,10 @@ components:
     CommandRequest:
       type: object
       properties:
-        command:
-          type: string
+        commands:
+          type: array
+          items:
+            type: string
         price:
           type: number
           format: double
@@ -29,7 +31,7 @@ components:
           type: string
           nullable: true
           description: Optional voucher code
-      required: [command, price, cart]
+      required: [commands, price, cart]
     CommandResponse:
       type: object
       properties:

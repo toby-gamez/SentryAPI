@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class CommandRequest(
-	val command: String,
+	val commands: List<String>,
 	val price: Double,
 	val cart: List<CartItem>,
 	val voucher: String? = null

@@ -96,9 +96,15 @@ fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String, apiBaseUrl: 
                     return@post call.respond(HttpStatusCode.BadRequest, body)
                 }
 
-                // all checks passed — dispatch command
-                val res = dispatchCommand(plugin, req.command)
-                call.respond(res)
+                // all checks passed — dispatch one or more commands
+                val outputs = mutableListOf<String>()
+                var overallSuccess = true
+                for (cmd in req.commands) {
+                    val r = dispatchCommand(plugin, cmd)
+                    outputs.addAll(r.output)
+                    if (!r.success) overallSuccess = false
+                }
+                call.respond(CommandResponse(outputs, overallSuccess))
             }
 
             get("/players") {
