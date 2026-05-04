@@ -102,6 +102,26 @@ class HoloCommand(
         }
     }
 
+    /** Translates &#RRGGBB hex color codes into the legacy §x§R§R§G§G§B§B format. */
+    private fun translateHexColors(text: String): String {
+        val sb = StringBuilder()
+        var i = 0
+        while (i < text.length) {
+            if (i + 7 <= text.length && text[i] == '&' && text[i + 1] == '#') {
+                val hex = text.substring(i + 2, i + 8)
+                if (hex.all { it.isDigit() || it.uppercaseChar() in 'A'..'F' }) {
+                    sb.append('\u00a7').append('x')
+                    for (c in hex) sb.append('\u00a7').append(c)
+                    i += 8
+                    continue
+                }
+            }
+            sb.append(text[i])
+            i++
+        }
+        return sb.toString()
+    }
+
     private fun getLuckPermsPrefix(username: String): String {
         return try {
             if (!Bukkit.getPluginManager().isPluginEnabled("LuckPerms")) return ""
@@ -115,7 +135,7 @@ class HoloCommand(
             } ?: return ""
             val meta = user.cachedData.getMetaData(net.luckperms.api.query.QueryOptions.nonContextual())
             val raw = meta.prefix ?: return ""
-            ChatColor.translateAlternateColorCodes('&', raw)
+            ChatColor.translateAlternateColorCodes('&', translateHexColors(raw))
         } catch (t: Throwable) {
             ""
         }
@@ -243,11 +263,9 @@ class HoloCommand(
         val subtitle = "${ChatColor.GRAY}${toSmallCaps("LEADERBOARD")}${ChatColor.RESET}"
         val rawRows = entries.take(10).map { e ->
             val rankText = "${ChatColor.RED}${e.rank}.${ChatColor.RESET}"
-            val prefix = getLuckPermsPrefix(e.minecraftUsername)
-            val prefixText = if (prefix.isNotEmpty()) "$prefix " else ""
             val nameText = "${ChatColor.WHITE}${e.minecraftUsername}${ChatColor.RESET}"
             val scoreText = "${ChatColor.RED}${formatPaid(e.totalPaid)}€${ChatColor.RESET}"
-            "$rankText $prefixText$nameText $scoreText"
+            "$rankText $nameText $scoreText"
         }
         val rows = if (player != null) {
             rawRows.map { line ->

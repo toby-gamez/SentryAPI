@@ -385,6 +385,9 @@ private suspend fun fetchPlayerStats(plugin: JavaPlugin, playerName: String): Pl
             user?.cachedData
                 ?.getMetaData(net.luckperms.api.query.QueryOptions.nonContextual())
                 ?.prefix
+                ?.replace(Regex("&#[0-9A-Fa-f]{6}"), "")
+                ?.replace(Regex("&[0-9a-fk-orA-FK-OR]"), "")
+                ?.trim()
                 ?.takeIf { it.isNotEmpty() }
         } else null
     } catch (e: Exception) {
