@@ -9,7 +9,6 @@ import io.ktor.server.request.*
 import io.ktor.http.*
 import io.ktor.server.plugins.swagger.*
 import io.ktor.server.plugins.cors.routing.*
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.net.URI
 import java.net.http.HttpClient
@@ -70,13 +69,8 @@ fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String, apiBaseUrl: 
                 // price must be positive
                 if (req.price <= 0.0) return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Price must be > 0"))
 
-                // parse cart JSON (client sends cart JSON as string)
-                val json = Json { ignoreUnknownKeys = true }
-                val cartItems = try {
-                    json.decodeFromString(ListSerializer(CartItem.serializer()), req.cart)
-                } catch (e: Exception) {
-                    return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Malformed cart JSON: ${e.message}"))
-                }
+                // cart is expected as JSON array (List<CartItem>) and is deserialized automatically
+                val cartItems = req.cart
 
                 // compute cart total
                 val cartTotal = cartItems.map { it.key.price * it.quantity }.sum()
@@ -93,7 +87,13 @@ fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String, apiBaseUrl: 
                 // minimum allowed price: voucher discount + 5% extra tolerance
                 val minAllowedPrice = cartTotal * (1.0 - (discountPercent + 5.0) / 100.0)
                 if (req.price < minAllowedPrice) {
-                    return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Price validation failed", "minAllowedPrice" to minAllowedPrice, "cartTotal" to cartTotal, "discountPercent" to discountPercent))
+                    val body = ValidationErrorResponse(
+                        error = "Price validation failed",
+                        minAllowedPrice = minAllowedPrice,
+                        cartTotal = cartTotal,
+                        discountPercent = discountPercent
+                    )
+                    return@post call.respond(HttpStatusCode.BadRequest, body)
                 }
 
                 // all checks passed — dispatch command

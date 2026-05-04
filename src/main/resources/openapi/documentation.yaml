@@ -21,8 +21,10 @@ components:
           format: double
           description: Price submitted by client in EUR
         cart:
-          type: string
-          description: JSON-encoded cart payload (array of items as string)
+          type: array
+          description: Cart as JSON array of items
+          items:
+            $ref: '#/components/schemas/CartItem'
         voucher:
           type: string
           nullable: true
@@ -87,6 +89,90 @@ components:
         error:
           type: string
           nullable: true
+    CartServer:
+      type: object
+      properties:
+        Id:
+          type: integer
+        Name:
+          type: string
+        RCONIP:
+          type: string
+        RCONPort:
+          type: integer
+        RCONPassword:
+          type: string
+    CartKey:
+      type: object
+      properties:
+        Id:
+          type: integer
+        Name:
+          type: string
+        Description:
+          type: string
+          nullable: true
+        Price:
+          type: number
+          format: double
+        Sale:
+          type: number
+          format: double
+          nullable: true
+        Image:
+          type: string
+          nullable: true
+        GlobalMaxOrder:
+          type: integer
+          nullable: true
+        Server:
+          $ref: '#/components/schemas/CartServer'
+        Type:
+          type: string
+          nullable: true
+    CartItem:
+      type: object
+      properties:
+        Key:
+          $ref: '#/components/schemas/CartKey'
+        Quantity:
+          type: integer
+    VoucherResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+        description:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date-time
+        expirationDate:
+          type: string
+          format: date-time
+        maxUses:
+          type: integer
+          nullable: true
+        currentUses:
+          type: integer
+          nullable: true
+        discountPercent:
+          type: number
+          format: double
+        scope:
+          type: string
+          nullable: true
+        scopeCategory:
+          type: string
+          nullable: true
+        scopeItemId:
+          type: integer
+          nullable: true
+        isActive:
+          type: boolean
 
 paths:
   /command:

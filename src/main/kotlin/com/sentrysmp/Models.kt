@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
 data class CommandRequest(
 	val command: String,
 	val price: Double,
-	val cart: String,
+	val cart: List<CartItem>,
 	val voucher: String? = null
 )
 
@@ -59,6 +59,14 @@ data class VoucherResponse(
 	val scopeCategory: String? = null,
 	val scopeItemId: Int? = null,
 	val isActive: Boolean = false
+)
+
+@Serializable
+data class ValidationErrorResponse(
+	val error: String,
+	val minAllowedPrice: Double,
+	val cartTotal: Double,
+	val discountPercent: Double
 )
 
 @Serializable
