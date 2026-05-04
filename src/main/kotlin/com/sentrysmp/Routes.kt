@@ -111,6 +111,39 @@ fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String, apiBaseUrl: 
                     outputs.addAll(r.output)
                     if (!r.success) overallSuccess = false
                 }
+                // broadcast store message to all online players
+                try {
+                    val itemCount = cartItems.map { it.quantity }.sum()
+                    val storeComp = net.kyori.adventure.text.Component.text("[STORE]")
+                        .color(net.kyori.adventure.text.format.NamedTextColor.RED)
+                        .decoration(net.kyori.adventure.text.format.TextDecoration.BOLD, net.kyori.adventure.text.format.TextDecoration.State.TRUE)
+
+                    val playerComp = net.kyori.adventure.text.Component.text(" ").append(
+                        net.kyori.adventure.text.Component.text(playerName)
+                            .color(net.kyori.adventure.text.format.NamedTextColor.WHITE)
+                            .decoration(net.kyori.adventure.text.format.TextDecoration.BOLD, net.kyori.adventure.text.format.TextDecoration.State.FALSE)
+                    )
+
+                    val middleComp = net.kyori.adventure.text.Component.text(" just bought ")
+                        .color(net.kyori.adventure.text.format.NamedTextColor.GRAY)
+                        .decoration(net.kyori.adventure.text.format.TextDecoration.BOLD, net.kyori.adventure.text.format.TextDecoration.State.FALSE)
+
+                    val itemsComp = net.kyori.adventure.text.Component.text("$itemCount items!")
+                        .color(net.kyori.adventure.text.format.NamedTextColor.RED)
+                        .decoration(net.kyori.adventure.text.format.TextDecoration.BOLD, net.kyori.adventure.text.format.TextDecoration.State.FALSE)
+
+                    val msg = storeComp.append(playerComp).append(middleComp).append(itemsComp)
+
+                    // send on main server thread
+                    Bukkit.getScheduler().runTask(plugin, Runnable {
+                        for (p in Bukkit.getOnlinePlayers()) {
+                            try { p.sendMessage(msg) } catch (_: Exception) { }
+                        }
+                    })
+                } catch (_: Exception) {
+                    // don't fail the request if broadcasting fails
+                }
+
                 call.respond(CommandResponse(outputs, overallSuccess))
             }
 
