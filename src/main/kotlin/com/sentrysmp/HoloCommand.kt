@@ -173,6 +173,10 @@ class HoloCommand(
                     return true
                 }
                 val name = args[2]
+                if (name.contains('.')) {
+                    sender.sendMessage("Název hologramu nesmí obsahovat '.'.")
+                    return true
+                }
                 val range = if (args.size >= 4) args[3].lowercase() else "all"
                 if (range !in setOf("all", "today", "week", "month")) {
                     sender.sendMessage("Unknown range: $range. Use all, today, week, or month.")
@@ -286,10 +290,9 @@ class HoloCommand(
 
                 val stands = renderer.spawnHologram(loc, lines)
                 if (stands.isNotEmpty()) {
-                    val instance = HoloInstance(loc, stands, null, null, range)
-                    active[key] = instance
                     persistStands(stands)
 
+                    var ttlTaskId: Int? = null
                     if (hologramTtlSeconds > 0L) {
                         val ticks = hologramTtlSeconds * 20L
                         val ttlTask = Bukkit.getScheduler().runTaskLater(plugin, Runnable {
@@ -300,10 +303,10 @@ class HoloCommand(
                             }
                             removeHoloConfig(key)
                         }, ticks)
-                        try { instance.ttlTaskId = ttlTask.taskId } catch (_: NoSuchMethodError) {}
+                        try { ttlTaskId = ttlTask.taskId } catch (_: NoSuchMethodError) {}
                     }
 
-                    val refreshTicks = Math.max(1L, hologramRefreshSeconds) * 20L
+                    val refreshTicks = hologramRefreshSeconds * 20L
                     val task = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, Runnable {
                         val updated = fetcher() ?: return@Runnable
                         val lines2 = buildLines(updated.entries, player)
@@ -322,7 +325,13 @@ class HoloCommand(
                         })
                     }, refreshTicks, refreshTicks)
 
-                    try { instance.refreshTaskId = task.taskId } catch (_: NoSuchMethodError) {}
+                    var refreshTaskId: Int? = null
+                    try { refreshTaskId = task.taskId } catch (_: NoSuchMethodError) {}
+
+                    // Build the complete instance with both task IDs before inserting into active
+                    // to avoid removeAll() missing orphaned tasks.
+                    val instance = HoloInstance(loc, stands, refreshTaskId, ttlTaskId, range)
+                    active[key] = instance
                 }
                 onComplete?.invoke(stands.size)
             })

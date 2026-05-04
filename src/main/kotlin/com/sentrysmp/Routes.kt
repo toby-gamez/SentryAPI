@@ -20,15 +20,33 @@ import org.bukkit.Bukkit
 import org.bukkit.command.CommandSender
 import org.bukkit.plugin.java.JavaPlugin
 import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
 
-fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String, apiBaseUrl: String) {
+private val sharedHttpClient: HttpClient = HttpClient.newBuilder()
+    .version(HttpClient.Version.HTTP_2)
+    .connectTimeout(Duration.ofSeconds(10))
+    .build()
+
+private val voucherJson = Json { ignoreUnknownKeys = true }
+
+private val COMMAND_BLACKLIST = setOf(
+    "ban", "ban-ip", "pardon", "pardon-ip",
+    "kick",
+    "op", "deop",
+    "stop", "restart",
+    "reload",
+    "time", "weather",
+    "whitelist"
+)
+
+fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String, apiBaseUrl: String, port: Int = 8080) {
     install(ContentNegotiation) {
         json()
     }
 
     install(CORS) {
-        anyHost()
+        allowHost("localhost:$port", schemes = listOf("http"))
+        allowHost("127.0.0.1:$port", schemes = listOf("http"))
+        allowHost("www.sentrysmp.eu", schemes = listOf("https"))
         allowHeader(HttpHeaders.ContentType)
         allowHeader("X-API-Key")
         allowMethod(HttpMethod.Get)
@@ -107,6 +125,10 @@ fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String, apiBaseUrl: 
                 val outputs = mutableListOf<String>()
                 var overallSuccess = true
                 for (cmd in req.commands) {
+                    val cmdName = cmd.trimStart().split(Regex("\\s+"), limit = 2).firstOrNull()?.lowercase() ?: ""
+                    if (cmdName in COMMAND_BLACKLIST) {
+                        return@post call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Command '$cmdName' is not allowed"))
+                    }
                     val r = dispatchCommand(plugin, cmd)
                     outputs.addAll(r.output)
                     if (!r.success) overallSuccess = false
@@ -271,21 +293,17 @@ private fun runCapturing(
 }
 
 private fun fetchVoucher(baseUrl: String, code: String): VoucherResponse? {
-    val client = HttpClient.newBuilder()
-        .version(HttpClient.Version.HTTP_2)
-        .connectTimeout(Duration.ofSeconds(10))
-        .build()
-    val url = if (baseUrl.endsWith("/")) "${baseUrl}Vouchers/$code" else "$baseUrl/Vouchers/$code"
+    val encoded = java.net.URLEncoder.encode(code, "UTF-8")
+    val url = if (baseUrl.endsWith("/")) "${baseUrl}Vouchers/$encoded" else "$baseUrl/Vouchers/$encoded"
     return try {
         val req = HttpRequest.newBuilder()
             .uri(URI.create(url))
             .timeout(Duration.ofSeconds(10))
             .GET()
             .build()
-        val resp = client.send(req, HttpResponse.BodyHandlers.ofString())
+        val resp = sharedHttpClient.send(req, HttpResponse.BodyHandlers.ofString())
         if (resp.statusCode() != 200) return null
-        val json = Json { ignoreUnknownKeys = true }
-        json.decodeFromString(VoucherResponse.serializer(), resp.body())
+        voucherJson.decodeFromString(VoucherResponse.serializer(), resp.body())
     } catch (e: Exception) {
         null
     }

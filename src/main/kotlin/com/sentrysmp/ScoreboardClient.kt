@@ -12,7 +12,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 class ScoreboardClient(
     private val baseUrl: String = "https://www.sentrysmp.eu/api",
-    private val ttlSeconds: Long = 60
+    private val ttlSeconds: Long = 60,
+    private val logger: java.util.logging.Logger = java.util.logging.Logger.getLogger(ScoreboardClient::class.java.name)
 ) {
     private val client: HttpClient = HttpClient.newBuilder()
         .version(HttpClient.Version.HTTP_2)
@@ -44,7 +45,6 @@ class ScoreboardClient(
         val url = if (path.startsWith("/")) "$baseUrl$path" else "$baseUrl/$path"
         var attempt = 0
         val maxAttempts = 3
-        var backoff = 200L
         while (attempt < maxAttempts) {
             attempt++
             try {
@@ -65,20 +65,18 @@ class ScoreboardClient(
                             val list = json.decodeFromString(ListSerializer(ScoreEntry.serializer()), body)
                             ScoreboardResponse(entries = list)
                         } catch (ex: Exception) {
-                            println("ScoreboardClient: parse error for $url -> $ex")
+                            logger.warning("ScoreboardClient: parse error for $url -> $ex")
                             null
                         }
                     }
                     parsed?.also { putCache(path, it) }
                     return parsed
                 } else {
-                    println("ScoreboardClient: non-200 ${resp.statusCode()} for $url")
+                    logger.warning("ScoreboardClient: non-200 ${resp.statusCode()} for $url")
                 }
             } catch (e: Exception) {
-                println("ScoreboardClient: attempt $attempt error fetching $url -> $e")
+                logger.warning("ScoreboardClient: attempt $attempt error fetching $url -> $e")
             }
-            try { Thread.sleep(backoff) } catch (_: InterruptedException) {}
-            backoff *= 2
         }
         return null
     }

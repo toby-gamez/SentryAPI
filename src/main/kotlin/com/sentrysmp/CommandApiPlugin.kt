@@ -21,7 +21,7 @@ class CommandApiPlugin : JavaPlugin() {
         val scoreboardBase = config.getString("scoreboard-base-url") ?: "https://www.sentrysmp.eu/api"
         val scoreboardCacheTtl = config.getLong("scoreboard-cache-ttl" )
         val cacheTtl = if (scoreboardCacheTtl <= 0L) 60L else scoreboardCacheTtl
-        val client = ScoreboardClient(scoreboardBase, cacheTtl)
+        val client = ScoreboardClient(scoreboardBase, cacheTtl, logger)
 
         val holoTtl = config.getLong("hologram-ttl-seconds")
         val hologramTtl = if (holoTtl < 0L) 0L else holoTtl
@@ -38,7 +38,7 @@ class CommandApiPlugin : JavaPlugin() {
         this.getCommand("sentrysmp")?.tabCompleter = holo
 
         val server = embeddedServer(Netty, host = host, port = port) {
-            configureRoutes(this@CommandApiPlugin, apiKey, scoreboardBase)
+            configureRoutes(this@CommandApiPlugin, apiKey, scoreboardBase, port)
         }
         server.start(false)
         httpServer = server
