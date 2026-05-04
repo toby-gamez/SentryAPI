@@ -66,6 +66,13 @@ fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String, apiBaseUrl: 
             post("/command") {
                 val req = call.receive<CommandRequest>()
 
+                // require playerName and ensure the player is currently online
+                if (req.playerName.isNullOrBlank()) return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing playerName"))
+                val playerName = req.playerName
+                val currentPlayers = fetchPlayers(plugin)
+                val isOnline = currentPlayers.players.any { it.name.equals(playerName, ignoreCase = true) }
+                if (!isOnline) return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Player '$playerName' is not connected"))
+
                 // price must be positive
                 if (req.price <= 0.0) return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Price must be > 0"))
 

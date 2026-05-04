@@ -8,6 +8,7 @@ data class CommandRequest(
 	val commands: List<String>,
 	val price: Double,
 	val cart: List<CartItem>,
+	val playerName: String? = null,
 	val voucher: String? = null
 )
 
