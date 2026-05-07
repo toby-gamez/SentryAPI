@@ -59,6 +59,8 @@ components:
           type: string
         uuid:
           type: string
+        rank:
+          type: string
     PlayersResponse:
       type: object
       properties:
