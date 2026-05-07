@@ -214,7 +214,20 @@ private suspend fun dispatchCommand(plugin: JavaPlugin, command: String): Comman
 
 private suspend fun fetchPlayers(plugin: JavaPlugin): PlayersResponse = suspendCancellableCoroutine { cont ->
     Bukkit.getScheduler().runTask(plugin, Runnable {
-        val players = Bukkit.getOnlinePlayers().map { p -> PlayerInfo(p.name, p.uniqueId.toString()) }
+        val lp = try { net.luckperms.api.LuckPermsProvider.get() } catch (_: Exception) { null }
+        val players = Bukkit.getOnlinePlayers().map { p ->
+            val rank: String? = try {
+                lp?.userManager?.getUser(p.uniqueId)
+                    ?.cachedData
+                    ?.getMetaData(net.luckperms.api.query.QueryOptions.nonContextual())
+                    ?.prefix
+                    ?.replace(Regex("&#[0-9A-Fa-f]{6}"), "")
+                    ?.replace(Regex("&[0-9a-fk-orA-FK-OR]"), "")
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+            } catch (_: Exception) { null }
+            PlayerInfo(p.name, p.uniqueId.toString(), rank)
+        }
         cont.resume(PlayersResponse(players))
     })
 }

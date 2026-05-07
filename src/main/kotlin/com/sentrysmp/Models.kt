@@ -16,7 +16,7 @@ data class CommandRequest(
 data class CommandResponse(val output: List<String>, val success: Boolean)
 
 @Serializable
-data class PlayerInfo(val name: String, val uuid: String)
+data class PlayerInfo(val name: String, val uuid: String, val rank: String? = null)
 
 @Serializable
 data class CartServer(
