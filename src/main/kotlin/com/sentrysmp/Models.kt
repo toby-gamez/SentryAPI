@@ -1,7 +1,19 @@
 package com.sentrysmp
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 @Serializable
 data class CommandRequest(
@@ -40,10 +52,37 @@ data class CartKey(
 	@kotlinx.serialization.SerialName("Type") val type: String? = null
 )
 
-@Serializable
+private val CART_ITEM_TYPES = setOf("Key", "Coin", "Other", "Rank", "Battlepass")
+
+object CartItemSerializer : KSerializer<CartItem> {
+	override val descriptor: SerialDescriptor = buildClassSerialDescriptor("CartItem")
+
+	override fun serialize(encoder: Encoder, value: CartItem) {
+		val jsonEncoder = encoder as? JsonEncoder
+			?: throw kotlinx.serialization.SerializationException("Only JSON supported")
+		val itemJson = jsonEncoder.json.encodeToJsonElement(CartKey.serializer(), value.item)
+		jsonEncoder.encodeJsonElement(buildJsonObject {
+			put("Key", itemJson)
+			put("Quantity", value.quantity)
+		})
+	}
+
+	override fun deserialize(decoder: Decoder): CartItem {
+		val jsonDecoder = decoder as? JsonDecoder
+			?: throw kotlinx.serialization.SerializationException("Only JSON supported")
+		val obj = jsonDecoder.decodeJsonElement().jsonObject
+		val typeKey = CART_ITEM_TYPES.firstOrNull { obj.containsKey(it) }
+			?: throw kotlinx.serialization.SerializationException("CartItem must contain one of: $CART_ITEM_TYPES")
+		val cartKey = jsonDecoder.json.decodeFromJsonElement(CartKey.serializer(), obj[typeKey]!!)
+		val quantity = obj["Quantity"]!!.jsonPrimitive.int
+		return CartItem(cartKey, quantity)
+	}
+}
+
+@Serializable(with = CartItemSerializer::class)
 data class CartItem(
-	@kotlinx.serialization.SerialName("Key") val key: CartKey,
-	@kotlinx.serialization.SerialName("Quantity") val quantity: Int
+	val item: CartKey,
+	val quantity: Int
 )
 
 @Serializable

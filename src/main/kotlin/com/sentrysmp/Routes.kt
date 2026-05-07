@@ -98,7 +98,7 @@ fun Application.configureRoutes(plugin: JavaPlugin, apiKey: String, apiBaseUrl: 
                 val cartItems = req.cart
 
                 // compute cart total
-                val cartTotal = cartItems.map { it.key.price * it.quantity }.sum()
+                val cartTotal = cartItems.map { it.item.price * it.quantity }.sum()
 
                 // determine discountPercent (0 if no voucher provided)
                 var discountPercent = 0.0
