@@ -414,7 +414,10 @@ private suspend fun fetchPlayerStats(plugin: JavaPlugin, playerName: String): Pl
                 try {
                     val onlinePlayer = Bukkit.getPlayer(playerName)
                     if (onlinePlayer != null) {
-                        val playTicks = try {
+                        // Compute play time in a clear, explicit way to avoid unit confusion.
+                        var playTicks = 0L
+                        var playSeconds = 0L
+                        try {
                             val stat = try {
                                 org.bukkit.Statistic.valueOf("PLAY_ONE_TICK")
                             } catch (_: Exception) {
@@ -422,16 +425,15 @@ private suspend fun fetchPlayerStats(plugin: JavaPlugin, playerName: String): Pl
                             }
                             if (stat != null) {
                                 val statVal = try { onlinePlayer.getStatistic(stat).toLong() } catch (_: Exception) { 0L }
-                                if (stat.name == "PLAY_ONE_MINUTE") {
-                                    // PLAY_ONE_MINUTE reports minutes; convert minutes -> seconds -> ticks
-                                    val seconds = statVal * 60L
-                                    seconds * 20L
-                                } else {
-                                    statVal
-                                }
-                            } else 0L
-                        } catch (_: Exception) { 0L }
-                        val playSeconds = if (playTicks > 0L) playTicks / 20L else 0L
+                                // NOTE: on many server versions `PLAY_ONE_MINUTE` actually reports ticks
+                                // (legacy name) — treat either statistic value as ticks to avoid overcounting.
+                                playTicks = statVal
+                                playSeconds = if (playTicks > 0L) playTicks / 20L else 0L
+                            }
+                        } catch (_: Exception) {
+                            playTicks = 0L
+                            playSeconds = 0L
+                        }
                         val deaths = try { onlinePlayer.getStatistic(org.bukkit.Statistic.DEATHS).toLong() } catch (_: Exception) { 0L }
                         val playerKills = try { onlinePlayer.getStatistic(org.bukkit.Statistic.PLAYER_KILLS).toLong() } catch (_: Exception) { 0L }
                         val mobsKilled = try { onlinePlayer.getStatistic(org.bukkit.Statistic.MOB_KILLS).toLong() } catch (_: Exception) { 0L }
