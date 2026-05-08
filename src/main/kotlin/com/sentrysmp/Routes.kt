@@ -407,5 +407,72 @@ private suspend fun fetchPlayerStats(plugin: JavaPlugin, playerName: String): Pl
         null
     }
 
-    return PlayerStatsResponse(playerName, partial.coins, partial.money, rank)
+    // Fetch Bukkit statistics for online players on the main thread
+    val statistics: com.sentrysmp.PlayerStatistics? = try {
+        suspendCancellableCoroutine { cont ->
+            Bukkit.getScheduler().runTask(plugin, Runnable {
+                try {
+                    val onlinePlayer = Bukkit.getPlayer(playerName)
+                    if (onlinePlayer != null) {
+                        val playTicks = try {
+                            val stat = try {
+                                org.bukkit.Statistic.valueOf("PLAY_ONE_TICK")
+                            } catch (_: Exception) {
+                                try { org.bukkit.Statistic.valueOf("PLAY_ONE_MINUTE") } catch (_: Exception) { null }
+                            }
+                            if (stat != null) {
+                                val statVal = try { onlinePlayer.getStatistic(stat).toLong() } catch (_: Exception) { 0L }
+                                if (stat.name == "PLAY_ONE_MINUTE") {
+                                    // PLAY_ONE_MINUTE reports minutes; convert minutes -> seconds -> ticks
+                                    val seconds = statVal * 60L
+                                    seconds * 20L
+                                } else {
+                                    statVal
+                                }
+                            } else 0L
+                        } catch (_: Exception) { 0L }
+                        val playSeconds = if (playTicks > 0L) playTicks / 20L else 0L
+                        val deaths = try { onlinePlayer.getStatistic(org.bukkit.Statistic.DEATHS).toLong() } catch (_: Exception) { 0L }
+                        val playerKills = try { onlinePlayer.getStatistic(org.bukkit.Statistic.PLAYER_KILLS).toLong() } catch (_: Exception) { 0L }
+                        val mobsKilled = try { onlinePlayer.getStatistic(org.bukkit.Statistic.MOB_KILLS).toLong() } catch (_: Exception) { 0L }
+                        // aggregate various "one cm" movement statistics where available
+                        val travelStatNames = listOf(
+                            "WALK_ONE_CM",
+                            "SPRINT_ONE_CM",
+                            "FLY_ONE_CM",
+                            "SWIM_ONE_CM",
+                            "WALK_ON_WATER_ONE_CM",
+                            "CLIMB_ONE_CM",
+                            "WALK_UNDER_WATER_ONE_CM"
+                        )
+                        var totalTravelCm = 0L
+                        for (name in travelStatNames) {
+                            try {
+                                val stat = org.bukkit.Statistic.valueOf(name)
+                                val v = try { onlinePlayer.getStatistic(stat).toLong() } catch (_: Exception) { 0L }
+                                totalTravelCm += v
+                            } catch (_: Exception) {
+                                // stat not present on this server/Paper version
+                            }
+                        }
+                        val blocksTravelled = totalTravelCm / 100L
+                        cont.resume(com.sentrysmp.PlayerStatistics(
+                            playTimeSeconds = playSeconds.takeIf { it > 0L },
+                            playTimeTicks = playTicks.takeIf { it > 0L },
+                            deaths = deaths.takeIf { it > 0L },
+                            playerKills = playerKills.takeIf { it > 0L },
+                            mobsKilled = mobsKilled.takeIf { it > 0L },
+                            blocksTravelled = blocksTravelled.takeIf { it > 0L }
+                        ))
+                    } else {
+                        cont.resume(null)
+                    }
+                } catch (e: Exception) {
+                    cont.resume(null)
+                }
+            })
+        }
+    } catch (_: Exception) { null }
+
+    return PlayerStatsResponse(playerName, partial.coins, partial.money, rank, statistics)
 }

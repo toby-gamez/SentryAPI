@@ -101,8 +101,38 @@ components:
         rank:
           type: string
           nullable: true
+        statistics:
+          $ref: '#/components/schemas/PlayerStatistics'
         error:
           type: string
+          nullable: true
+
+    PlayerStatistics:
+      type: object
+      properties:
+        playTimeSeconds:
+          type: integer
+          format: int64
+          nullable: true
+        playTimeTicks:
+          type: integer
+          format: int64
+          nullable: true
+        deaths:
+          type: integer
+          format: int64
+          nullable: true
+        playerKills:
+          type: integer
+          format: int64
+          nullable: true
+        mobsKilled:
+          type: integer
+          format: int64
+          nullable: true
+        blocksTravelled:
+          type: integer
+          format: int64
           nullable: true
     CartServer:
       type: object

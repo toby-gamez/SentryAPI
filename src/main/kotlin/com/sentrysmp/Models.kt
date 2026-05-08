@@ -124,7 +124,18 @@ data class PlayerStatsResponse(
 	val coins: Long? = null,
 	val money: Double? = null,
 	val rank: String? = null,
+	val statistics: PlayerStatistics? = null,
 	val error: String? = null
+)
+
+@Serializable
+data class PlayerStatistics(
+    val playTimeSeconds: Long? = null,
+    val playTimeTicks: Long? = null,
+    val deaths: Long? = null,
+    val playerKills: Long? = null,
+    val mobsKilled: Long? = null,
+	val blocksTravelled: Long? = null
 )
 
 @Serializable

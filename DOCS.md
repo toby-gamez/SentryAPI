@@ -541,11 +541,26 @@ data class BanlistResponse(val banned: List<BanEntry>)
 
 ```kotlin
 data class PlayerStatsResponse(
-    val player: String,
-    val coins: Long? = null,
-    val money: Double? = null,
-    val error: String? = null
+  val player: String,
+  val coins: Long? = null,
+  val money: Double? = null,
+  val rank: String? = null,
+  val statistics: PlayerStatistics? = null,
+  val error: String? = null
 )
+
+### PlayerStatistics
+
+```kotlin
+data class PlayerStatistics(
+  val playTimeSeconds: Long? = null,
+  val playTimeTicks: Long? = null,
+  val deaths: Long? = null,
+  val playerKills: Long? = null,
+  val mobsKilled: Long? = null,
+  val blocksTravelled: Long? = null
+)
+```
 ```
 
 ### ScoreEntry
